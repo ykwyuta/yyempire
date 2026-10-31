@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="description" content="春秋戦国時代の中国を舞台にしたブラウザ RTS" />
+    <title>春秋戦国</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%238b1a1a'/><text x='32' y='46' font-size='40' text-anchor='middle' fill='%23f5e6a8'>覇</text></svg>" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="view"></canvas>
+      <div id="topbar">
+        <div id="date"></div>
+        <div id="resources"></div>
+        <div id="controls">
+          <button data-speed="0" title="一時停止 (Space)">⏸</button>
+          <button data-speed="1">1×</button>
+          <button data-speed="2">2×</button>
+          <button data-speed="4">4×</button>
+          <button data-speed="8">8×</button>
+          <button id="btn-diplo" title="諸国一覧">諸国</button>
+          <button id="btn-help" title="遊び方">？</button>
+        </div>
+      </div>
+      <div id="banner" class="hidden"></div>
+      <div id="log"></div>
+      <div id="panel"></div>
+      <canvas id="minimap"></canvas>
+      <div id="modal" class="overlay hidden"><div class="box"><h2 id="modal-title"></h2><div id="modal-body"></div><button id="modal-ok">了解</button></div></div>
+      <div id="diplo" class="overlay hidden"><div class="box wide"><h2>諸国一覧</h2><div id="diplo-body"></div><button id="diplo-close">閉じる</button></div></div>
+      <div id="help" class="overlay hidden"><div class="box wide">
+        <h2>遊び方</h2>
+        <div class="help-text">
+          <p><b>目的</b>: 前770年から前221年まで国を存続させ、天下第一の国となる（または統一する）。</p>
+          <p><b>操作</b>: 左クリック/ドラッグで選択、右クリックで命令（移動・採集・攻撃）。ホイールで拡大縮小、中ボタンドラッグ・矢印キー・ミニマップで視点移動。<br />
+          <kbd>A</kbd> 攻撃移動 / <kbd>B</kbd> 築城 / <kbd>Q</kbd> 全軍選択 / <kbd>E</kbd> 待機中の工人選択 / <kbd>H</kbd> 都へ / <kbd>Space</kbd> 一時停止 / <kbd>Esc</kbd> 取消<br />
+          スマホ: 1 本指でスクロール、2 本指で拡大縮小、タップで選択。「命令モード」中はタップで命令。</p>
+          <p><b>資源</b>: 工人を平原(糧)・森林(木)・鉱山▲(金)に送ると採集し、最寄りの城に運ぶ。自国か無主の土地でしか採集できない。</p>
+          <p><b>ユニット数の上限</b>は城の数で決まり多くない。その代わり<b>訓練</b>で能力（兵力・採集力）を高められる。能力の上限は時代で全国共通（春秋 250 / 戦国 400）。</p>
+          <p><b>軍事ユニット</b>は存在するだけで糧を消費する（能力に比例）。糧が尽きると兵が逃亡する。<b>解散</b>して工人に、工人を<b>徴兵</b>して兵にできるが、能力は 2/3 に目減りする。</p>
+          <p><b>兵種</b>: 歩兵（戦車・騎兵に強い）、戦車（歩兵・弓兵に強いが山林で弱い）、弓兵（戦国期は弩兵、射程が長い）、騎兵（前307年以降、弓兵に強い）。</p>
+          <p><b>覇者の呼びかけ</b>（春秋）: 周辺国への攻撃を続けると、覇者が諸侯を糾合して一定期間一斉に攻撃してくる。</p>
+          <p><b>合従軍</b>（戦国）: 最も強大な国は、周辺諸国から一定期間一斉に攻撃を受ける。</p>
+          <p><b>三家分晋</b>（前403年）: 晋が存続していれば韓・趙・魏に分裂する。</p>
+          <p>戦国七雄の系譜にある国（秦・楚・斉・燕・晋→韓趙魏）は生産力が高く城も堅い。文明の進歩（鉄器・弩・騎兵）は全国一律に訪れる。</p>
+        </div>
+        <button id="help-close">閉じる</button>
+      </div></div>
+      <div id="start" class="overlay"><div class="box wide">
+        <h1>春秋戦国</h1>
+        <p class="sub">前770年、周の東遷。諸侯は覇を競い、やがて七雄の世が来る。率いる国を選べ。</p>
+        <div id="state-list"></div>
+        <div class="start-row"><span id="start-sel"></span><button id="btn-start" disabled>出陣</button><button id="btn-help2">遊び方</button></div>
+      </div></div>
+      <div id="end" class="overlay hidden"><div class="box wide"><h2 id="end-title"></h2><p id="end-reason"></p><div id="end-rank"></div><button id="btn-restart">もう一度</button></div></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "yyempire",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "春秋戦国 RTS — 静的サイトとして Cloudflare で動作するブラウザゲーム",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "sim": "esbuild scripts/sim.ts --bundle --platform=node --format=esm --outfile=.sim/sim.mjs && node .sim/sim.mjs",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.0"
+  }
+}
