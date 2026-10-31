@@ -93,3 +93,33 @@ table.dip tr.me { background: rgba(212, 162, 70, 0.15); }
   #log { width: 60vw; top: auto; bottom: 40vh; left: 8px; right: auto; max-height: 20vh; }
   #topbar { font-size: 12px; gap: 6px; }
 }
+
+/* ---- コマンドカード ---- */
+.chip { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; border-radius: 2px; vertical-align: -1px; }
+#resources span { display: inline-flex; align-items: center; gap: 3px; }
+#resources svg { vertical-align: middle; }
+#btn-idle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; }
+#btn-idle.alert { border-color: #f1c40f; box-shadow: 0 0 6px #f1c40f88; }
+#btn-idle b { font-size: 13px; }
+.sel-head { display: flex; gap: 10px; align-items: flex-start; }
+.sel-head > svg { flex: none; }
+.sel-head > div { flex: 1; min-width: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 4px; margin: 6px 0; }
+button.card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px 3px;
+  min-height: 58px; background: linear-gradient(#4a3520, #2e2014); }
+button.card .lbl { font-size: 10px; line-height: 1.15; display: flex; flex-wrap: wrap; justify-content: center; gap: 0 3px; }
+button.card .lbl svg { vertical-align: -2px; }
+button.card .hk { position: absolute; top: 1px; right: 3px; font-size: 9px; color: var(--accent); }
+.queue { display: flex; gap: 4px; margin: 6px 0; }
+.queue .qi { position: relative; width: 34px; height: 36px; border: 1px solid var(--border); border-radius: 4px; padding: 1px; cursor: pointer; background: #1a120b; }
+.queue .qi:first-child { border-color: var(--accent); }
+.queue .qi i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); }
+.queue .qi:hover { background: #5a2020; }
+#panel .units { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
+#panel .units .ut { position: relative; display: flex; flex-direction: column; align-items: center; padding: 2px 1px 4px; background: rgba(255, 255, 255, 0.05); }
+#panel .units .ut i { position: absolute; left: 2px; bottom: 1px; height: 2px; }
+#panel .units .ut small { font-size: 9px; color: var(--muted); }
+.trade { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.trade button { font-size: 11px; display: flex; align-items: center; gap: 2px; justify-content: center; }
+.start-row label { margin-right: auto; color: var(--muted); font-size: 13px; }
+.start-row select { background: #3a2a1a; color: var(--text); border: 1px solid var(--border); font-family: inherit; }

@@ -1,5 +1,5 @@
-import { NEW_CITY_COST, UNIT, abilityCap, canAfford, cityLevelCap, cityUpgradeCost, type ResKey, type UnitKind } from './config';
-import type { City, Game, Order, State, Unit } from './game';
+import { BUILDING, NEW_CITY_COST, UNIT, canAfford, cityLevelCap, cityUpgradeCost, type BuildingKind, type ResKey, type UnitKind } from './config';
+import type { City, Game, Order, State, Struct, Unit } from './game';
 import { MW, T_FOREST, T_HILL, T_PLAIN, T_STEPPE } from './map';
 
 /** 1.5 秒ごとの AI 思考 */
@@ -10,19 +10,22 @@ export function aiThink(g: Game, s: State): void {
   const workers = units.filter((u) => u.kind === 'worker');
   const soldiers = units.filter((u) => u.kind !== 'worker');
   const r = s.res;
+  const enemies = g.enemiesOf(s.id);
+  const atWar = enemies.length > 0;
 
-  // ---- 経済 ----
+  // ---- 工人の生産 ----
   const capW = g.workerCap(s.id);
-  const freeCities = cities.filter((c) => !c.queue);
-  if (workers.length + g.queuedCount(s.id, false) < capW && r.food >= 60 && freeCities.length) {
-    g.enqueue(freeCities[Math.floor(g.rng() * freeCities.length)], 'worker');
+  if (workers.length + g.queuedCount(s.id, false) < capW && r.food >= 60) {
+    const free = cities.filter((c) => c.queue.length === 0);
+    if (free.length) g.enqueue(free[Math.floor(g.rng() * free.length)], 'worker');
   }
 
+  // ---- 採集配分 ----
   const upkeep = g.upkeepPerSec(s.id);
   const counts: Record<ResKey, number> = { food: 0, wood: 0, metal: 0 };
   for (const w of workers) if (w.order.type === 'gather') counts[w.order.res]++;
   const foodNeed = 0.45 + (r.food < 150 ? 0.2 : 0) + Math.min(0.25, upkeep * 0.4) - (r.food > 600 ? 0.2 : 0) - (r.food > 1500 ? 0.15 : 0);
-  const woodNeed = r.wood > 1000 ? 0.1 : 0.3;
+  const woodNeed = r.wood > 1000 ? 0.1 : r.wood < 150 ? 0.4 : 0.3;
   const metalNeed = r.metal > 1000 ? 0.1 : 0.3;
   const total = foodNeed + woodNeed + metalNeed;
   const want: Record<ResKey, number> = {
@@ -30,10 +33,11 @@ export function aiThink(g: Game, s: State): void {
     wood: (woodNeed / total) * workers.length,
     metal: (metalNeed / total) * workers.length,
   };
+  const keys: ResKey[] = ['food', 'wood', 'metal'];
   const pickRes = (): ResKey => {
     let best: ResKey = 'food';
     let bd = -Infinity;
-    for (const k of ['food', 'wood', 'metal'] as ResKey[]) {
+    for (const k of keys) {
       const d = want[k] - counts[k];
       if (d > bd) {
         bd = d;
@@ -50,9 +54,7 @@ export function aiThink(g: Game, s: State): void {
       if (o.type === 'gather') counts[o.res]++;
     }
   }
-  // 採集配分の付け替え（1 回の思考で 1 人まで）
   {
-    const keys: ResKey[] = ['food', 'wood', 'metal'];
     let need: ResKey = 'food';
     let over: ResKey = 'food';
     let nd = -Infinity;
@@ -69,21 +71,18 @@ export function aiThink(g: Game, s: State): void {
       }
     }
     if (nd >= 0.9 && od <= -0.5 && need !== over) {
-      const w = workers.find((x) => x.order.type === 'gather' && x.order.res === over && x.order.phase !== 'toCity');
+      const w = workers.find((x) => x.order.type === 'gather' && x.order.res === over && x.order.phase !== 'toDrop');
       if (w) g.autoGather(w, need);
     }
   }
 
-  // ---- 築城 ----
-  const building = g.ownCities(s.id, true).some((c) => c.built < 1);
-  const maxCities = s.bias >= 1.3 ? 10 : s.bias >= 0.95 ? 5 : 3;
-  if (!building && cities.length < maxCities && canAfford(r, { food: NEW_CITY_COST.food + 120, wood: NEW_CITY_COST.wood + 40, metal: 0 }) && workers.length >= 3 && g.rng() < 0.1 * s.bias) {
-    tryExpand(g, s, cities, workers);
-  }
+  // ---- 建設 ----
+  const underConstruction = g.ownCities(s.id, true).some((c) => c.built < 1) || g.ownBuildings(s.id, undefined, true).some((b) => b.built < 1);
+  if (!underConstruction && workers.length >= 3 && g.rng() < 0.35) aiConstruct(g, s, cities, workers, atWar);
 
   // ---- 城の強化 ----
-  for (const c of freeCities) {
-    if (c.queue || c.level >= cityLevelCap(g.era)) continue;
+  for (const c of cities) {
+    if (c.queue.length || c.level >= cityLevelCap(g.era)) continue;
     const cost = cityUpgradeCost(c.level);
     if (r.food > cost.food + 250 && r.wood > cost.wood + 100 && r.metal > cost.metal + 100 && g.rng() < 0.2) {
       g.enqueue(c, 'upgrade');
@@ -91,21 +90,26 @@ export function aiThink(g: Game, s: State): void {
     }
   }
 
+  // ---- 市での交易 ----
+  if (g.ownBuildings(s.id, 'market').length && g.rng() < 0.3) {
+    const rich = keys.slice().sort((a, b) => r[b] - r[a])[0];
+    const poor = keys.slice().sort((a, b) => r[a] - r[b])[0];
+    if (r[rich] > 700 && r[poor] < 150) g.trade(s.id, rich, poor, 100);
+  }
+
   // ---- 軍備 ----
   const capS = g.soldierCap(s.id);
-  const enemies = g.enemiesOf(s.id);
-  const atWar = enemies.length > 0;
   let foodIncome = 0;
   for (const w of workers) if (w.order.type === 'gather' && w.order.res === 'food') foodIncome += 0.28 * (w.ability / 100) * s.bias;
   for (const c of cities) foodIncome += 0.2 * c.level * s.bias;
   const sustainable = foodIncome > upkeep * (atWar ? 1.0 : 1.4) + 0.15 || r.food > 600;
   const desired = atWar ? capS : Math.max(2, Math.round(capS * (0.45 + s.aggr * 0.35)));
   if (soldiers.length + g.queuedCount(s.id, true) < desired && sustainable && r.food > 90) {
-    const free = cities.filter((c) => !c.queue);
-    if (free.length) {
-      const kind = chooseKind(g, s, soldiers);
-      g.enqueue(free[Math.floor(g.rng() * free.length)], kind);
-    }
+    const kind = chooseKind(g, s, soldiers, atWar);
+    const producers: Struct[] = [...g.ownBuildings(s.id, 'barracks'), ...cities].filter(
+      (p) => p.queue.length < 2 && g.producible(p).includes(kind),
+    );
+    if (producers.length) g.enqueue(producers[0], kind);
   }
 
   // 訓練・補充
@@ -114,32 +118,33 @@ export function aiThink(g: Game, s: State): void {
     if (u.ability < u.maxAbility * 0.7 && r.food > 200 && r.metal > 80) g.reinforce(u);
   }
   if (r.food > 350 && r.metal > 200 && g.rng() < 0.4) {
-    const cand = soldiers.filter((u) => g.canTrain(u)).sort((a, b) => a.maxAbility - b.maxAbility)[0];
+    const cand = soldiers.filter((u) => u.kind !== 'ram' && g.canTrain(u)).sort((a, b) => a.maxAbility - b.maxAbility)[0];
     if (cand) g.train(cand);
   }
   if (r.food > 300 && r.wood > 300 && g.rng() < 0.3) {
     const cand = workers.filter((u) => g.canTrain(u)).sort((a, b) => a.maxAbility - b.maxAbility)[0];
     if (cand) g.train(cand);
   }
-  // 兵が多すぎて兵糧が尽きそうなら解散
   if (s.starving && soldiers.length > 2 && workers.length < capW) {
     const weakest = soldiers.slice().sort((a, b) => a.ability - b.ability)[0];
     const w = g.disband(weakest);
     if (w) g.autoGather(w, 'food');
   }
 
-  // ---- 軍事行動 ----
   armyControl(g, s, cities, soldiers, enemies);
 }
 
-function chooseKind(g: Game, s: State, soldiers: Unit[]): UnitKind {
-  const n: Record<string, number> = { infantry: 0, chariot: 0, archer: 0, cavalry: 0 };
+function chooseKind(g: Game, s: State, soldiers: Unit[], atWar: boolean): UnitKind {
+  const n: Record<string, number> = { infantry: 0, chariot: 0, archer: 0, cavalry: 0, ram: 0 };
   for (const u of soldiers) n[u.kind]++;
+  const hasBarracks = g.ownBuildings(s.id, 'barracks').length > 0;
+  if (!hasBarracks) return 'infantry';
   const ratios: [UnitKind, number][] = g.era === 'spring'
-    ? [['infantry', 0.4], ['chariot', 0.35], ['archer', 0.25]]
+    ? [['infantry', 0.35], ['chariot', 0.3], ['archer', 0.22]]
     : g.kindAvailable('cavalry')
-      ? [['infantry', 0.35], ['archer', 0.3], ['cavalry', 0.25], ['chariot', 0.1]]
-      : [['infantry', 0.45], ['archer', 0.35], ['chariot', 0.2]];
+      ? [['infantry', 0.3], ['archer', 0.27], ['cavalry', 0.22], ['chariot', 0.08]]
+      : [['infantry', 0.4], ['archer', 0.32], ['chariot', 0.15]];
+  if (atWar) ratios.push(['ram', 0.13]);
   const tot = soldiers.length + 1;
   let best: UnitKind = 'infantry';
   let bd = -Infinity;
@@ -152,6 +157,57 @@ function chooseKind(g: Game, s: State, soldiers: Unit[]): UnitKind {
     }
   }
   return best;
+}
+
+function nearestWorkers(workers: Unit[], x: number, y: number, n: number): Unit[] {
+  return workers
+    .filter((w) => w.order.type !== 'build')
+    .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))
+    .slice(0, n);
+}
+
+function aiBuild(g: Game, s: State, kind: BuildingKind, near: { x: number; y: number }, workers: Unit[], rmin: number, rmax: number): boolean {
+  if (!canAfford(s.res, BUILDING[kind].cost)) return false;
+  const site = g.findBuildingSite(s.id, near.x, near.y, rmin, rmax, kind);
+  if (!site) return false;
+  const b = g.placeBuilding(s.id, kind, site[0], site[1], nearestWorkers(workers, site[0], site[1], kind === 'storehouse' ? 1 : 2));
+  return !!b;
+}
+
+function aiConstruct(g: Game, s: State, cities: City[], workers: Unit[], atWar: boolean): void {
+  const r = s.res;
+  const cap = cities.find((c) => c.capital) ?? cities[0];
+  // 兵営
+  const barracks = g.ownBuildings(s.id, 'barracks', true);
+  if (barracks.length < Math.min(2, Math.ceil(cities.length / 3)) && r.wood >= 170) {
+    if (aiBuild(g, s, 'barracks', cap, workers, 2.5, 5)) return;
+  }
+  // 倉庫: 集積所から遠い採集地
+  if (r.wood >= 110 && g.ownBuildings(s.id, 'storehouse', true).length < cities.length * 2) {
+    for (const w of workers) {
+      const o = w.order;
+      if (o.type !== 'gather') continue;
+      const drop = g.nearestDrop(s.id, o.tx, o.ty);
+      if (drop && Math.hypot(drop.x - o.tx, drop.y - o.ty) > 6) {
+        if (aiBuild(g, s, 'storehouse', { x: o.tx, y: o.ty }, workers, 1, 2.5)) return;
+      }
+    }
+  }
+  // 望楼
+  if (atWar && r.wood >= 120 && r.metal >= 200 && g.rng() < 0.4) {
+    const c = cities[Math.floor(g.rng() * cities.length)];
+    const towers = g.ownBuildings(s.id, 'tower', true).filter((t) => Math.hypot(t.x - c.x, t.y - c.y) < 8).length;
+    if (towers < 1 && aiBuild(g, s, 'tower', c, workers, 2, 4)) return;
+  }
+  // 市
+  if (!g.ownBuildings(s.id, 'market', true).length && r.wood >= 350 && cities.length >= 2) {
+    if (aiBuild(g, s, 'market', cap, workers, 3, 6)) return;
+  }
+  // 築城
+  const maxCities = s.bias >= 1.3 ? 10 : s.bias >= 0.95 ? 5 : 3;
+  if (cities.length < maxCities && canAfford(r, { food: NEW_CITY_COST.food + 120, wood: NEW_CITY_COST.wood + 40, metal: 0 }) && g.rng() < 0.3 * s.bias) {
+    tryExpand(g, s, cities, workers);
+  }
 }
 
 function tryExpand(g: Game, s: State, cities: City[], workers: Unit[]): void {
@@ -186,20 +242,15 @@ function tryExpand(g: Game, s: State, cities: City[], workers: Unit[]): void {
     }
   }
   if (!best) return;
-  const builders = workers
-    .slice()
-    .sort((a, b) => Math.hypot(a.x - best![0], a.y - best![1]) - Math.hypot(b.x - best![0], b.y - best![1]))
-    .slice(0, 2);
-  g.foundCity(s.id, best[0], best[1], builders);
+  g.foundCity(s.id, best[0], best[1], nearestWorkers(workers, best[0], best[1], 2));
 }
 
 function armyControl(g: Game, s: State, cities: City[], soldiers: Unit[], enemies: number[]): void {
-  // 部隊の掃除
   for (const id of [...s.army]) {
     const u = g.unitById.get(id);
     if (!u || u.dead) s.army.delete(id);
   }
-  // 撤退: 消耗した兵を帰還させる
+  // 撤退
   for (const u of soldiers) {
     if (u.ability < u.maxAbility * 0.3 && g.map.ownerAt(u.x, u.y) !== s.id && u.order.type !== 'move') {
       const home = g.nearestOwnCity(s.id, u.x, u.y);
@@ -210,7 +261,6 @@ function armyControl(g: Game, s: State, cities: City[], soldiers: Unit[], enemie
     }
   }
   if (!enemies.length) {
-    // 平時: 部隊を帰還
     for (const id of s.army) {
       const u = g.unitById.get(id);
       if (u && u.order.type !== 'move' && g.map.ownerAt(u.x, u.y) !== s.id) {
@@ -221,7 +271,7 @@ function armyControl(g: Game, s: State, cities: City[], soldiers: Unit[], enemie
     s.army.clear();
     return;
   }
-  // 防衛: 領内の敵
+  // 防衛
   const enemySet = new Set(enemies);
   let intruder: Unit | null = null;
   const cap = cities.find((c) => c.capital) ?? cities[0];
@@ -237,11 +287,11 @@ function armyControl(g: Game, s: State, cities: City[], soldiers: Unit[], enemie
   }
   const home = soldiers.filter((u) => !s.army.has(u.id));
   if (intruder) {
-    const defenders = home.filter((u) => u.order.type === 'idle' && Math.hypot(u.x - intruder!.x, u.y - intruder!.y) < 30);
+    const defenders = home.filter((u) => u.order.type === 'idle' && u.kind !== 'ram' && Math.hypot(u.x - intruder!.x, u.y - intruder!.y) < 30);
     if (defenders.length) g.attackTarget(defenders, { unit: intruder });
   }
 
-  // 攻撃目標国の決定
+  // 攻撃目標国
   let target = -1;
   const ev = g.event;
   if (ev && ev.members.includes(s.id) && enemySet.has(ev.target)) target = ev.target;
@@ -257,10 +307,8 @@ function armyControl(g: Game, s: State, cities: City[], soldiers: Unit[], enemie
     }
   }
   if (target < 0) return;
-  // 包囲されている国は防衛優先
   if (ev && ev.target === s.id && soldiers.length < 6) return;
 
-  // 目標都市
   let tc: City | null = null;
   let td = Infinity;
   for (const c of g.cities) {
@@ -288,11 +336,8 @@ function armyControl(g: Game, s: State, cities: City[], soldiers: Unit[], enemie
     if (u && !u.dead) army.push(u);
   }
   const idleArmy = army.filter((u) => u.order.type === 'idle');
-  if (idleArmy.length) {
-    g.moveUnits(idleArmy, tc.x, tc.y, true);
-  }
+  if (idleArmy.length) g.moveUnits(idleArmy, tc.x, tc.y, true);
   if (army.length && army.length < 2 && g.rng() < 0.3) {
-    // 小勢は帰還
     for (const u of army) {
       s.army.delete(u.id);
       const h = g.nearestOwnCity(s.id, u.x, u.y);
@@ -305,7 +350,6 @@ function armyControl(g: Game, s: State, cities: City[], soldiers: Unit[], enemie
 export function aiYearly(g: Game, s: State): void {
   const my = g.milStrength(s.id) + 30;
   const enemies = g.enemiesOf(s.id);
-  // 講和
   for (const e of enemies) {
     const w = g.getWar(s.id, e);
     if (!w || g.isForcedWar(s.id, e)) continue;
@@ -320,15 +364,11 @@ export function aiYearly(g: Game, s: State): void {
           s.peaceOffers.add(e);
           g.msg(`${s.name} が講和を申し入れてきた（諸国一覧から受諾できる）`, 'info', true);
         }
-      } else {
-        const otherMy = theirs;
-        if (otherMy < my * 2.0 || g.rng() < 0.3) g.makePeace(s.id, e);
-      }
+      } else if (theirs < my * 2.0 || g.rng() < 0.3) g.makePeace(s.id, e);
     }
   }
   if (s.warTarget >= 0 && !g.atWar(s.id, s.warTarget)) s.warTarget = -1;
 
-  // 宣戦
   const ev = g.event;
   if (ev && (ev.target === s.id || ev.members.includes(s.id))) return;
   const nonForced = enemies.filter((e) => !g.isForcedWar(s.id, e));
@@ -345,10 +385,8 @@ export function aiYearly(g: Game, s: State): void {
     if (d > 35) continue;
     const theirs = g.milStrength(o.id) + 30;
     const ratio = my / theirs;
-    // 大国は大国との正面衝突を避け、小国は大国を恐れる
     const need = o.bias >= 1.3 ? (s.bias >= 1.3 ? 1.6 : 2.2) : 1.3;
     if (ratio < need) continue;
-    // 周王室は攻撃しにくい（春秋）
     const respect = o.def.key === 'zhou' && g.era === 'spring' ? 0.3 : 1;
     const score = (ratio / (d + 10)) * respect * (0.7 + g.rng() * 0.6);
     if (score > bestScore) {
@@ -360,8 +398,4 @@ export function aiYearly(g: Game, s: State): void {
     g.declareWar(s.id, best);
     s.warTarget = best;
   }
-}
-
-export function abilityHeadroom(g: Game, u: Unit): number {
-  return abilityCap(g.era) - u.maxAbility;
 }

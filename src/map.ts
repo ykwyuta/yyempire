@@ -1,5 +1,6 @@
 import { LAKES, RANGES, RIVERS, SEA_POLY, type LonLat } from './data/geo';
 import { fbm, hash2 } from './rng';
+import { FOREST_AMOUNT, MINE_AMOUNT } from './config';
 
 export const LON0 = 102;
 export const LAT1 = 42.5;
@@ -59,6 +60,10 @@ export class GameMap {
   fertile = new Uint8Array(MW * MH);
   mine = new Uint8Array(MW * MH);
   cost = new Float32Array(MW * MH);
+  /** 森林・鉱山の残量 */
+  amount = new Float32Array(MW * MH);
+  /** 地形が変化したタイル（描画側が消費する） */
+  changed: number[] = [];
   /** 領有国 (-1 = 無主) */
   owner = new Int16Array(MW * MH).fill(-1);
 
@@ -229,6 +234,10 @@ export class GameMap {
     // 都市周辺の保証
     for (const [cx, cy] of cityTiles) this.prepareCitySite(cx, cy, seed);
     this.recomputeCost();
+    for (let i = 0; i < MW * MH; i++) {
+      if (this.mine[i]) this.amount[i] = MINE_AMOUNT;
+      else if (this.terrain[i] === T_FOREST) this.amount[i] = FOREST_AMOUNT;
+    }
   }
 
   prepareCitySite(cx: number, cy: number, seed: number): void {
@@ -287,6 +296,17 @@ export class GameMap {
         this.mine[i] = 1;
       }, 3, 5, 2);
     }
+    for (let dy = -6; dy <= 6; dy++) {
+      for (let dx = -6; dx <= 6; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (!this.inBounds(x, y)) continue;
+        const i = y * MW + x;
+        if (this.mine[i] && this.amount[i] <= 0) this.amount[i] = MINE_AMOUNT;
+        else if (this.terrain[i] === T_FOREST && this.amount[i] <= 0) this.amount[i] = FOREST_AMOUNT;
+        this.changed.push(i);
+      }
+    }
     if (!near((i) => this.terrain[i] === T_PLAIN && this.fertile[i] === 1, 3)) {
       // 平原を少し広げる
       for (let dy = -2; dy <= 2; dy++) {
@@ -299,6 +319,23 @@ export class GameMap {
         }
       }
     }
+  }
+
+  /** 資源を採る。枯渇すると地形が変わる（森林→平原、鉱山→廃坑） */
+  harvest(tx: number, ty: number, amt: number): number {
+    const i = ty * MW + tx;
+    if (!this.mine[i] && this.terrain[i] !== T_FOREST) return amt; // 平原・草原は無尽蔵
+    const got = Math.min(amt, this.amount[i]);
+    this.amount[i] -= got;
+    if (this.amount[i] <= 0) {
+      if (this.mine[i]) this.mine[i] = 0;
+      else {
+        this.terrain[i] = T_PLAIN;
+        this.cost[i] = 1 + (this.river[i] ? 2 : 0);
+      }
+      this.changed.push(i);
+    }
+    return got;
   }
 
   recomputeCost(): void {

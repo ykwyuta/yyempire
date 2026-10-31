@@ -13,6 +13,7 @@
       <div id="topbar">
         <div id="date"></div>
         <div id="resources"></div>
+        <button id="btn-idle" title="待機中の工人 (E / .)"></button>
         <div id="controls">
           <button data-speed="0" title="一時停止 (Space)">⏸</button>
           <button data-speed="1">1×</button>
@@ -33,13 +34,14 @@
         <h2>遊び方</h2>
         <div class="help-text">
           <p><b>目的</b>: 前770年から前221年まで国を存続させ、天下第一の国となる（または統一する）。</p>
-          <p><b>操作</b>: 左クリック/ドラッグで選択、右クリックで命令（移動・採集・攻撃）。ホイールで拡大縮小、中ボタンドラッグ・矢印キー・ミニマップで視点移動。<br />
-          <kbd>A</kbd> 攻撃移動 / <kbd>B</kbd> 築城 / <kbd>Q</kbd> 全軍選択 / <kbd>E</kbd> 待機中の工人選択 / <kbd>H</kbd> 都へ / <kbd>Space</kbd> 一時停止 / <kbd>Esc</kbd> 取消<br />
+          <p><b>操作</b>: 左クリック/ドラッグで選択、右クリックで命令（移動・採集・攻撃・建設・修理）。建物を選んで右クリックで集結地点。ホイールで拡大縮小、中ボタンドラッグ・矢印キー・ミニマップで視点移動。<br />
+          <kbd>A</kbd> 攻撃移動 / <kbd>B</kbd> 建設メニュー / <kbd>Q</kbd> 全軍選択 / <kbd>E</kbd> <kbd>.</kbd> 待機中の工人 / <kbd>Ctrl</kbd>+<kbd>1-9</kbd> 部隊編成・<kbd>1-9</kbd> 呼び出し（2 回で移動）/ <kbd>H</kbd> 都へ / <kbd>Space</kbd> 一時停止 / <kbd>Esc</kbd> 取消<br />
           スマホ: 1 本指でスクロール、2 本指で拡大縮小、タップで選択。「命令モード」中はタップで命令。</p>
-          <p><b>資源</b>: 工人を平原(糧)・森林(木)・鉱山▲(金)に送ると採集し、最寄りの城に運ぶ。自国か無主の土地でしか採集できない。</p>
+          <p><b>資源</b>: 工人を平原(糧)・森林(木)・鉱山▲(金)に送ると採集し、最寄りの城か倉庫に運ぶ。自国か無主の土地でしか採集できない。森林と鉱山は掘り尽くすと消える（森は平原になる）。</p>
+          <p><b>建物</b>: 工人で建設する。<b>城</b>（工人・歩兵の生産、領土）、<b>倉庫</b>（資源の集積所）、<b>兵営</b>（戦車・弓兵・騎兵・衝車）、<b>望楼</b>（防御）、<b>市</b>（資源の交易。相場は天下共通）。生産は最大 5 件まで予約でき、アイコンをクリックで取消。</p>
           <p><b>ユニット数の上限</b>は城の数で決まり多くない。その代わり<b>訓練</b>で能力（兵力・採集力）を高められる。能力の上限は時代で全国共通（春秋 250 / 戦国 400）。</p>
           <p><b>軍事ユニット</b>は存在するだけで糧を消費する（能力に比例）。糧が尽きると兵が逃亡する。<b>解散</b>して工人に、工人を<b>徴兵</b>して兵にできるが、能力は 2/3 に目減りする。</p>
-          <p><b>兵種</b>: 歩兵（戦車・騎兵に強い）、戦車（歩兵・弓兵に強いが山林で弱い）、弓兵（戦国期は弩兵、射程が長い）、騎兵（前307年以降、弓兵に強い）。</p>
+          <p><b>兵種</b>: 歩兵（戦車・騎兵・衝車に強い）、戦車（歩兵・弓兵に強いが山林で弱い）、弓兵（戦国期は弩兵、射程が長い）、騎兵（前307年以降、弓兵に強い）、衝車（城と建物を壊す。兵とは戦えない）。城を落とすには衝車が要る。</p>
           <p><b>覇者の呼びかけ</b>（春秋）: 周辺国への攻撃を続けると、覇者が諸侯を糾合して一定期間一斉に攻撃してくる。</p>
           <p><b>合従軍</b>（戦国）: 最も強大な国は、周辺諸国から一定期間一斉に攻撃を受ける。</p>
           <p><b>三家分晋</b>（前403年）: 晋が存続していれば韓・趙・魏に分裂する。</p>
@@ -51,7 +53,15 @@
         <h1>春秋戦国</h1>
         <p class="sub">前770年、周の東遷。諸侯は覇を競い、やがて七雄の世が来る。率いる国を選べ。</p>
         <div id="state-list"></div>
-        <div class="start-row"><span id="start-sel"></span><button id="btn-start" disabled>出陣</button><button id="btn-help2">遊び方</button></div>
+        <div class="start-row">
+          <label>戦場の霧
+            <select id="fog-mode">
+              <option value="explored" selected>地図は既知・敵は視界内のみ</option>
+              <option value="full">未踏の地は暗闇</option>
+              <option value="none">なし</option>
+            </select>
+          </label>
+          <span id="start-sel"></span><button id="btn-start" disabled>出陣</button><button id="btn-help2">遊び方</button></div>
       </div></div>
       <div id="end" class="overlay hidden"><div class="box wide"><h2 id="end-title"></h2><p id="end-reason"></p><div id="end-rank"></div><button id="btn-restart">もう一度</button></div></div>
     </div>

@@ -1,6 +1,6 @@
 import './style.css';
 import { STATE_DEFS, SEVEN_HEROES } from './data/states';
-import { Game } from './game';
+import { Game, type FogMode } from './game';
 import { Renderer } from './render';
 import { UI } from './ui';
 
@@ -40,7 +40,8 @@ function setupStart(): void {
 function start(key: string): void {
   $('start').classList.add('hidden');
   const seed = Math.floor(Math.random() * 1e9);
-  const game = new Game(key, seed);
+  const fog = ($('fog-mode') as HTMLSelectElement).value as FogMode;
+  const game = new Game(key, seed, fog);
   const canvas = $<HTMLCanvasElement>('view');
   const renderer = new Renderer(game, canvas, $<HTMLCanvasElement>('minimap'));
   renderer.resize();
@@ -52,7 +53,8 @@ function start(key: string): void {
   const p = game.player!;
   ui.showModal(`${p.name} の君主として`,
     `前770年、周は東の洛邑に遷った。諸侯が覇を競う春秋の世の始まりである。\n\n` +
-    `工人に資源を集めさせ、城で兵を養い、国を強くせよ。\n` +
+    `工人に資源を集めさせ、倉庫・兵営・望楼・市を建て、国を強くせよ。\n` +
+    `城を落とすには衝車が要る。\n` +
     `ユニットの数には限りがある。訓練で能力を高めよ。\n` +
     `兵は存在するだけで糧を食う。\n\n` +
     `周辺国を攻め続ければ、覇者が諸侯を率いて討伐に来る。\n` +
