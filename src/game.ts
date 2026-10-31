@@ -1,7 +1,7 @@
 import {
   ABILITY_STEP, BARRACKS_UNITS, BUILDING, BUILD_TIME, CAVALRY_YEAR, CITY_MIN_SPACING, CITY_UNITS, CONVERT_RATIO, DMG_RATE,
   END_YEAR, MAX_QUEUE, MIN_ABILITY, NEW_CITY_COST, SEC_PER_YEAR, SPLIT_YEAR, START_YEAR, UNIT, UPKEEP_PER_ABILITY, WARRING_YEAR,
-  abilityCap, addRes, canAfford, cityLevelCap, cityMaxHp, cityRadius, cityUpgradeCost, counterMult, resStr,
+  abilityCap, addRes, canAfford, cityLevelCap, cityMaxHp, cityRadius, cityUpgradeCost, counterMult, resStr, FORT_RADIUS,
   type BuildingKind, type Era, type Res, type ResKey, type UnitKind,
 } from './config';
 import { STATE_DEFS, SEVEN_HEROES, type StateDef } from './data/states';
@@ -279,7 +279,7 @@ export class Game {
   power(sid: number): number {
     let p = 0;
     for (const c of this.cities) if (c.owner === sid && !c.destroyed && c.built >= 1) p += 100 + 150 * c.level;
-    for (const b of this.buildings) if (b.owner === sid && !b.destroyed && b.built >= 1) p += 40;
+    for (const b of this.buildings) if (b.owner === sid && !b.destroyed && b.built >= 1) p += b.kind === 'fort' ? 120 : 40;
     for (const u of this.units) {
       if (u.owner !== sid || u.dead) continue;
       p += u.kind === 'worker' ? u.ability * 0.3 : u.ability * 0.6;
@@ -721,6 +721,7 @@ export class Game {
     if (kind === 'market' && this.ownBuildings(sid, 'market', true).length) return '市は一国に一つまで';
     if (kind === 'barracks' && this.ownBuildings(sid, 'barracks', true).length >= Math.max(1, this.ownCities(sid).length)) return '兵営は城の数まで';
     if (kind === 'tower' && this.ownBuildings(sid, 'tower', true).length >= 2 * this.ownCities(sid).length) return '望楼は城の数×2まで';
+    if (kind === 'fort' && this.ownBuildings(sid, 'fort', true).length >= this.ownCities(sid).length) return '砦は城の数まで';
     if (!canAfford(this.states[sid].res, BUILDING[kind].cost)) return `資源不足 (${resStr(BUILDING[kind].cost)})`;
     return null;
   }
@@ -791,6 +792,24 @@ export class Game {
         }
       }
     }
+    // 砦は小さな領域を持つ（城の領域より優先度は低い）
+    for (const b of this.buildings) {
+      if (b.destroyed || b.built < 1 || b.kind !== 'fort') continue;
+      const R = FORT_RADIUS;
+      for (let y = Math.max(0, Math.floor(b.y - R)); y <= Math.min(MH - 1, Math.ceil(b.y + R)); y++) {
+        for (let x = Math.max(0, Math.floor(b.x - R)); x <= Math.min(MW - 1, Math.ceil(b.x + R)); x++) {
+          const i = y * MW + x;
+          if (this.map.cost[i] === Infinity) continue;
+          const d = Math.hypot(x + 0.5 - b.x, y + 0.5 - b.y);
+          if (d > R) continue;
+          const sc = 0.15 + (d / R) * 0.9;
+          if (sc < score[i]) {
+            score[i] = sc;
+            owner[i] = b.owner;
+          }
+        }
+      }
+    }
     this.territoryDirty = false;
     this.territoryVersion++;
   }
@@ -814,7 +833,7 @@ export class Game {
       }
     };
     for (const c of this.cities) if (c.owner === pid && !c.destroyed) mark(c.x, c.y, c.built >= 1 ? cityRadius(c.level) + 2 : 4);
-    for (const b of this.buildings) if (b.owner === pid && !b.destroyed) mark(b.x, b.y, b.kind === 'tower' ? 9 : 4);
+    for (const b of this.buildings) if (b.owner === pid && !b.destroyed) mark(b.x, b.y, b.kind === 'tower' || b.kind === 'fort' ? 9 : 4);
     for (const u of this.units) if (u.owner === pid && !u.dead) mark(u.x, u.y, u.kind === 'worker' ? 5 : u.kind === 'cavalry' ? 8 : 6.5);
     const ex = this.explored;
     for (let i = 0; i < vis.length; i++) if (vis[i]) ex[i] = 1;
@@ -970,12 +989,13 @@ export class Game {
           }
         }
       }
-      // 防衛射撃（城・望楼）
+      // 防衛射撃（城・望楼・砦）
       const isTower = !c.isCity && c.kind === 'tower';
+      const isFort = !c.isCity && c.kind === 'fort';
       let shot = false;
-      if (c.isCity || isTower) {
-        const range = isTower ? 5 : 3.5;
-        const base = c.isCity ? 3 + 3 * c.level : 7;
+      if (c.isCity || isTower || isFort) {
+        const range = isTower ? 5 : isFort ? 4.5 : 3.5;
+        const base = c.isCity ? 3 + 3 * c.level : isFort ? 12 : 7;
         const dmg = base * s.bias * (this.era === 'warring' ? 1.2 : 1) * dt;
         let bestU: Unit | null = null;
         let bd = Infinity;
@@ -994,7 +1014,7 @@ export class Game {
         }
       }
       const underAttack = this.time - c.lastHitTime < 4;
-      if (!underAttack && !shot && c.hp < maxHp) c.hp = Math.min(maxHp, c.hp + (c.isCity ? 4 + c.level : 2) * dt);
+      if (!underAttack && !shot && c.hp < maxHp) c.hp = Math.min(maxHp, c.hp + (c.isCity ? 4 + c.level : isFort ? 5 : 2) * dt);
     }
   }
 
@@ -1018,6 +1038,7 @@ export class Game {
       if (st.hp <= 0) {
         st.destroyed = true;
         st.queue.length = 0;
+        if (st.kind === 'fort') this.territoryDirty = true;
         const pl = st.owner === this.playerId || attacker === this.playerId;
         if (pl) this.msg(`${this.states[attacker].name} が ${this.states[st.owner].name} の${BUILDING[st.kind].name}を破壊`, attacker === this.playerId ? 'good' : 'bad', true);
       }
@@ -1085,6 +1106,7 @@ export class Game {
     s.eliminatedYear = this.year;
     for (const u of this.units) if (u.owner === sid) this.killUnit(u);
     for (const b of this.buildings) if (b.owner === sid) b.destroyed = true;
+    this.territoryDirty = true;
     for (const k of [...this.wars.keys()]) {
       const w = this.wars.get(k)!;
       if (w.a === sid || w.b === sid) this.wars.delete(k);
@@ -1187,7 +1209,10 @@ export class Game {
           this.territoryDirty = true;
           if (!this.ownCities(u.owner).some((x) => x.capital)) c.capital = true;
           this.msg(`${s.name} が ${c.name} を築いた`, s.isPlayer ? 'good' : 'info', s.isPlayer);
-        } else if (s.isPlayer) this.msg(`${BUILDING[c.kind].name}が完成した`, 'good', true);
+        } else {
+          if (c.kind === 'fort') this.territoryDirty = true;
+          if (s.isPlayer) this.msg(`${BUILDING[c.kind].name}が完成した`, 'good', true);
+        }
       }
       return;
     }

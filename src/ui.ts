@@ -1,6 +1,6 @@
 import {
   BUILDING, BUILDING_KINDS, MAX_QUEUE, NEW_CITY_COST, RES_NAMES, UNIT, abilityCap, canAfford, cityLevelCap, cityUpgradeCost,
-  resStr, yearLabel, type BuildingKind, type Res, type ResKey, type UnitKind, MILITARY_KINDS,
+  TIER_NAMES, settlementTier, resStr, yearLabel, type BuildingKind, type Res, type ResKey, type UnitKind, MILITARY_KINDS,
 } from './config';
 import { structMaxHp, structName, type Game, type Msg, type Struct, type Unit } from './game';
 import { plainBuildingSvg, plainUnitSvg, resSvg, unitSvg, buildingSvg, upgradeSvg } from './icons';
@@ -635,8 +635,9 @@ export class UI {
     const pid = g.playerId;
     const p = g.states[pid];
     const owner = g.states[st.owner];
-    const icon = st.isCity ? buildingSvg('city', owner.color, 48) : buildingSvg(st.kind, owner.color, 48);
-    const title = st.isCity ? `${esc(owner.name)}・${esc(st.name)} ${st.capital ? '★' : ''} <small>Lv${st.level}</small>` : `${esc(owner.name)} の${BUILDING[st.kind].name}`;
+    const icon = st.isCity ? buildingSvg(settlementTier(st.level, st.capital), owner.color, 48) : buildingSvg(st.kind, owner.color, 48);
+    const title = st.isCity
+      ? `${esc(owner.name)}・${esc(st.name)} ${st.capital ? '★' : ''} <small>${TIER_NAMES[settlementTier(st.level, st.capital)]}${st.capital ? '（都）' : ''} Lv${st.level}</small>` : `${esc(owner.name)} の${BUILDING[st.kind].name}`;
     const maxHp = structMaxHp(st);
     let html = `<div class="sel-head">${icon}<div><h3>${title}</h3>`;
     if (st.built < 1) {
@@ -667,7 +668,9 @@ export class UI {
         const lvCap = cityLevelCap(g.era);
         if (st.level < lvCap) {
           const cost = cityUpgradeCost(st.level);
-          html += this.card('upgrade', upgradeSvg(30), costHtml(cost), !qfull && !st.queue.some((q) => q.kind === 'upgrade') && canAfford(p.res, cost), '', `城を Lv${st.level + 1} に強化 ${resStr(cost)}\n城壁・領域・兵の上限が増える（この時代の上限 Lv${lvCap}）`);
+          const nextTier = TIER_NAMES[settlementTier(st.level + 1, st.capital)];
+          const tierUp = settlementTier(st.level + 1, st.capital) !== settlementTier(st.level, st.capital) ? `（${nextTier}に昇格）` : '';
+          html += this.card('upgrade', plainBuildingSvg(settlementTier(st.level + 1, st.capital), 30), costHtml(cost), !qfull && !st.queue.some((q) => q.kind === 'upgrade') && canAfford(p.res, cost), '', `Lv${st.level + 1} に強化${tierUp} ${resStr(cost)}\n城壁・領域・兵の上限が増える（この時代の上限 Lv${lvCap}）`);
         }
       }
       html += `</div>`;
@@ -729,7 +732,7 @@ export class UI {
     // 建設メニュー
     if (this.buildMenu && workers.length) {
       html += `<div class="label">建設（工人 ${workers.length}）— 地点をクリック・Shift で連続配置</div><div class="cards">`;
-      html += this.card('place', plainBuildingSvg('city', 30), costHtml(NEW_CITY_COST), canAfford(p.res, NEW_CITY_COST), 'city', `城 ${resStr(NEW_CITY_COST)}\n領土を広げ、工人と歩兵を生産する。他の城から7以上離れた自領か無主地に建てる`);
+      html += this.card('place', plainBuildingSvg('town', 30), costHtml(NEW_CITY_COST), canAfford(p.res, NEW_CITY_COST), 'city', `邑 ${resStr(NEW_CITY_COST)}\n新たな町を開き領土を広げる。工人と歩兵を生産。Lv2 で城、Lv4 で大城に発展する。他の城邑から7以上離れた自領か無主地に建てる`);
       for (const k of BUILDING_KINDS) {
         const b = BUILDING[k];
         html += this.card('place', plainBuildingSvg(k, 30), costHtml(b.cost), canAfford(p.res, b.cost), k, `${b.name} ${resStr(b.cost)}\n${b.desc}`);

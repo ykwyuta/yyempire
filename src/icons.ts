@@ -2,7 +2,9 @@
  * ユニット・建物・資源のアイコン（SVG）。
  * 同じ定義を UI（インライン SVG）と Canvas（画像キャッシュ）で共用する。
  */
-import type { BuildingKind, ResKey, UnitKind } from './config';
+import type { BuildingKind, ResKey, SettlementTier, UnitKind } from './config';
+
+export type StructIcon = BuildingKind | SettlementTier;
 
 const INK = '#2a1a0e';
 const BONE = '#fbf1d6';
@@ -82,6 +84,47 @@ const UNIT_FIG: Record<string, string> = {
 
 /** 建物の図像 */
 const BUILDING_FIG: Record<string, string> = {
+  // 邑: 木柵に囲まれた茅葺きの家々
+  town: `
+    <path d="M5 13.5 L10 9.5 L15 13.5 Z" fill="#c9a24a" stroke="${INK}" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M6 13.5 H14 V19 H6 Z" fill="#e2cfa0" stroke="${INK}" stroke-width="1"/>
+    <path d="M9 19 V16 H11 V19" fill="${INK}"/>
+    <path d="M15.5 12 L21.5 7 L27.5 12 Z" fill="#c9a24a" stroke="${INK}" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M16.8 12 H26.2 V19 H16.8 Z" fill="#e2cfa0" stroke="${INK}" stroke-width="1"/>
+    <path d="M20.5 19 V15 H22.5 V19" fill="${INK}"/>
+    <path d="M3 19.5 H29 V27.5 H3 Z" fill="none"/>
+    <g fill="${WOOD}" stroke="${INK}" stroke-width="0.8" stroke-linejoin="round">
+      <path d="M3 28.5 V21.5 L4.3 19.8 L5.6 21.5 V28.5 Z"/><path d="M6.4 28.5 V21.5 L7.7 19.8 L9 21.5 V28.5 Z"/>
+      <path d="M9.8 28.5 V21.5 L11.1 19.8 L12.4 21.5 V28.5 Z"/>
+      <path d="M19.6 28.5 V21.5 L20.9 19.8 L22.2 21.5 V28.5 Z"/><path d="M23 28.5 V21.5 L24.3 19.8 L25.6 21.5 V28.5 Z"/>
+      <path d="M26.4 28.5 V21.5 L27.7 19.8 L29 21.5 V28.5 Z"/>
+    </g>
+    <path d="M12.8 28.5 V22.5 H19.2 V28.5" fill="none" stroke="${INK}" stroke-width="1"/>
+    <path d="M12.4 22.2 H19.6" stroke="${WOOD}" stroke-width="1.6"/>`,
+  // 大城: 二重の城壁と重層の宮殿
+  capital: `
+    <path d="M2 19 H30 V29.5 H2 Z" fill="#b9a27a" stroke="${INK}" stroke-width="1.2"/>
+    <path d="M2 19 V16.8 H4.6 V19 M7 19 V16.8 H9.6 V19 M22.4 19 V16.8 H25 V19 M27.4 19 V16.8 H30 V19" fill="#b9a27a" stroke="${INK}" stroke-width="0.9"/>
+    <path d="M5 23 H27" stroke="${INK}" stroke-width="0.6"/>
+    <path d="M13 29.5 V24.8 Q16 21.6 19 24.8 V29.5 Z" fill="${INK}"/>
+    <path d="M8.5 17 H23.5 V13.5 H8.5 Z" fill="#d8443a" stroke="${INK}" stroke-width="0.9"/>
+    <path d="M5 14 Q16 7.6 27 14 Q16 11.2 5 14 Z" fill="${INK}"/>
+    <path d="M11 10.5 H21 V7.5 H11 Z" fill="#d8443a" stroke="${INK}" stroke-width="0.8"/>
+    <path d="M8 8 Q16 2.2 24 8 Q16 5.8 8 8 Z" fill="${INK}"/>
+    <path d="M12 4.6 Q16 1 20 4.6 Q16 3.4 12 4.6 Z" fill="${BRONZE}" stroke="${INK}" stroke-width="0.6"/>
+    <path d="M3.3 16.8 V9.5 M28.7 16.8 V9.5" stroke="${INK}" stroke-width="0.9"/>
+    <path d="M3.3 9.5 L7 10.6 L3.3 11.8 Z M28.7 9.5 L25 10.6 L28.7 11.8 Z" fill="#d84a3a" stroke="${INK}" stroke-width="0.5"/>`,
+  // 砦: 土塁の上の木造の櫓と旗、前面に逆茂木
+  fort: `
+    <path d="M2.5 29.5 Q4 21 9 20 H23 Q28 21 29.5 29.5 Z" fill="#9c8558" stroke="${INK}" stroke-width="1.1" stroke-linejoin="round"/>
+    <path d="M6 24.5 Q16 22.5 26 24.5" fill="none" stroke="${INK}" stroke-width="0.6"/>
+    <path d="M10 20 V10 H22 V20" fill="${WOOD}" stroke="${INK}" stroke-width="1.1"/>
+    <path d="M10 13.5 H22 M10 17 H22 M14 10 V20 M18 10 V20" stroke="${INK}" stroke-width="0.6"/>
+    <path d="M8.5 10.5 H23.5 V8 H8.5 Z" fill="#c9a24a" stroke="${INK}" stroke-width="0.9"/>
+    <path d="M8.5 8 V6 H10.5 V8 M13 8 V6 H15 V8 M17 8 V6 H19 V8 M21.5 8 V6 H23.5 V8" fill="#c9a24a" stroke="${INK}" stroke-width="0.8"/>
+    <path d="M16 6 V1.5" stroke="${INK}" stroke-width="1"/>
+    <path d="M16 1.5 L22 3 L16 4.6 Z" fill="#d84a3a" stroke="${INK}" stroke-width="0.6"/>
+    <path d="M4 28 L8 23.5 M7 28 L4.5 24 M24 28 L28 23.5 M27 28 L24.5 24" stroke="${INK}" stroke-width="1.1" stroke-linecap="round"/>`,
   city: `
     <path d="M3 17 H29 V29 H3 Z" fill="#b9a27a" stroke="${INK}" stroke-width="1.2"/>
     <path d="M3 17 V14.5 H6 V17 M9 17 V14.5 H12 V17 M20 17 V14.5 H23 V17 M26 17 V14.5 H29 V17" fill="#b9a27a" stroke="${INK}" stroke-width="1"/>
@@ -146,7 +189,7 @@ export function unitSvg(kind: UnitKind, color: string, warring = false, size = 3
 }
 
 /** 建物アイコン（陣営色の台座付き） */
-export function buildingSvg(kind: BuildingKind | 'city', color: string, size = 32): string {
+export function buildingSvg(kind: StructIcon, color: string, size = 32): string {
   const base = `<rect x="1" y="1" width="30" height="30" rx="5" fill="${color}" stroke="${INK}" stroke-width="1.6"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}">${base}${BUILDING_FIG[kind]}</svg>`;
 }
@@ -155,7 +198,7 @@ export function buildingSvg(kind: BuildingKind | 'city', color: string, size = 3
 export function plainUnitSvg(kind: UnitKind, warring = false, size = 28): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}">${figFor(kind, warring)}</svg>`;
 }
-export function plainBuildingSvg(kind: BuildingKind | 'city', size = 28): string {
+export function plainBuildingSvg(kind: StructIcon, size = 28): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}">${BUILDING_FIG[kind]}</svg>`;
 }
 export function resSvg(r: ResKey, size = 16): string {

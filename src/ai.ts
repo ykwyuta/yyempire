@@ -199,6 +199,12 @@ function aiConstruct(g: Game, s: State, cities: City[], workers: Unit[], atWar: 
     const towers = g.ownBuildings(s.id, 'tower', true).filter((t) => Math.hypot(t.x - c.x, t.y - c.y) < 8).length;
     if (towers < 1 && aiBuild(g, s, 'tower', c, workers, 2, 4)) return;
   }
+  // 砦: 戦時、国境寄りの城の外側に
+  if (atWar && r.wood >= 250 && r.metal >= 300 && r.food >= 100 && g.rng() < 0.25) {
+    const c = cities[Math.floor(g.rng() * cities.length)];
+    const forts = g.ownBuildings(s.id, 'fort', true).filter((t) => Math.hypot(t.x - c.x, t.y - c.y) < 12).length;
+    if (forts < 1 && aiBuild(g, s, 'fort', c, workers, 5, 8)) return;
+  }
   // 市
   if (!g.ownBuildings(s.id, 'market', true).length && r.wood >= 350 && cities.length >= 2) {
     if (aiBuild(g, s, 'market', cap, workers, 3, 6)) return;

@@ -22,8 +22,8 @@ export const CITY_UNITS: UnitKind[] = ['worker', 'infantry'];
 export const BARRACKS_UNITS: UnitKind[] = ['infantry', 'chariot', 'archer', 'cavalry', 'ram'];
 export const MAX_QUEUE = 5;
 
-export type BuildingKind = 'storehouse' | 'barracks' | 'tower' | 'market';
-export const BUILDING_KINDS: BuildingKind[] = ['storehouse', 'barracks', 'tower', 'market'];
+export type BuildingKind = 'storehouse' | 'barracks' | 'tower' | 'fort' | 'market';
+export const BUILDING_KINDS: BuildingKind[] = ['storehouse', 'barracks', 'tower', 'fort', 'market'];
 export interface BuildingStat {
   name: string;
   cost: Res;
@@ -35,6 +35,7 @@ export const BUILDING: Record<BuildingKind, BuildingStat> = {
   storehouse: { name: '倉庫', cost: { food: 0, wood: 100, metal: 0 }, hp: 600, time: 15, desc: '資源の集積所。工人の運搬距離が短くなる' },
   barracks: { name: '兵営', cost: { food: 50, wood: 150, metal: 0 }, hp: 1100, time: 25, desc: '戦車・弓兵・騎兵・衝車を訓練する' },
   tower: { name: '望楼', cost: { food: 0, wood: 60, metal: 100 }, hp: 800, time: 20, desc: '近づく敵を射る防御施設' },
+  fort: { name: '砦', cost: { food: 50, wood: 150, metal: 150 }, hp: 2200, time: 35, desc: '堅固な防御拠点。周囲の敵を射撃し、小さな領域（半径4）を持つ' },
   market: { name: '市', cost: { food: 0, wood: 200, metal: 0 }, hp: 900, time: 30, desc: '資源を交易する（相場は天下共通）' },
 };
 export const FOREST_AMOUNT = 400;
@@ -93,6 +94,14 @@ export function cityLevelCap(era: Era): number {
 export function cityMaxHp(level: number): number {
   return 600 + 400 * level;
 }
+/** 城の格（レベルで変わる） */
+export type SettlementTier = 'town' | 'city' | 'capital';
+export function settlementTier(level: number, capital = false): SettlementTier {
+  if (level >= 4) return 'capital';
+  return level <= 1 && !capital ? 'town' : 'city';
+}
+export const TIER_NAMES: Record<SettlementTier, string> = { town: '邑', city: '城', capital: '大城' };
+export const FORT_RADIUS = 4;
 export function cityRadius(level: number): number {
   return 6 + 2 * level;
 }

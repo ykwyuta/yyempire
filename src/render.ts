@@ -1,4 +1,4 @@
-import { BUILDING, cityRadius, type BuildingKind } from './config';
+import { BUILDING, FORT_RADIUS, cityRadius, settlementTier, type BuildingKind } from './config';
 import { RIVERS } from './data/geo';
 import { structMaxHp, type Building, type City, type Game, type Struct, type Unit } from './game';
 import { buildingSvg, iconImage, unitSvg } from './icons';
@@ -374,16 +374,17 @@ export class Renderer {
       const bp = ds.buildPreview;
       const p = this.worldToScreen(bp.tx + 0.5, bp.ty + 0.5);
       const size = Math.max(16, z * (bp.kind === 'city' ? 2.2 : 1.6));
-      const img = iconImage(`b:${bp.kind}:${g.player?.color}`, () => buildingSvg(bp.kind, g.player?.color ?? '#888', 64));
+      const ik = bp.kind === 'city' ? 'town' : bp.kind;
+      const img = iconImage(`b:${ik}:${g.player?.color}`, () => buildingSvg(ik, g.player?.color ?? '#888', 64));
       ctx.globalAlpha = 0.65;
       if (img) ctx.drawImage(img, p.x - size / 2, p.y - size / 2, size, size);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = bp.ok ? '#7CFC00' : '#ff4040';
       ctx.lineWidth = 2;
       ctx.strokeRect(p.x - size / 2 - 2, p.y - size / 2 - 2, size + 4, size + 4);
-      if (bp.kind === 'city' || bp.kind === 'tower') {
+      if (bp.kind === 'city' || bp.kind === 'tower' || bp.kind === 'fort') {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, (bp.kind === 'city' ? cityRadius(1) : 5) * z, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, (bp.kind === 'city' ? cityRadius(1) : bp.kind === 'fort' ? FORT_RADIUS : 5) * z, 0, Math.PI * 2);
         ctx.setLineDash([4, 4]);
         ctx.stroke();
         ctx.setLineDash([]);
@@ -444,7 +445,8 @@ export class Renderer {
       ctx.arc(p.x, p.y, size * (0.85 + pulse * 0.2), 0, Math.PI * 2);
       ctx.stroke();
     }
-    const img = iconImage(`b:city:${s.color}`, () => buildingSvg('city', s.color, 64));
+    const tier = settlementTier(c.level, c.capital);
+    const img = iconImage(`b:${tier}:${s.color}`, () => buildingSvg(tier, s.color, 64));
     if (c.built < 1) this.drawConstruction(c, p, size, img);
     else if (img) ctx.drawImage(img, p.x - size / 2, p.y - size / 2, size, size);
     if (c.capital && c.built >= 1) {
@@ -479,7 +481,7 @@ export class Renderer {
     const z = this.cam.zoom;
     const s = this.g.states[b.owner];
     const p = this.worldToScreen(b.x, b.y);
-    const size = Math.max(11, z * 1.5);
+    const size = Math.max(11, z * (b.kind === 'fort' ? 1.9 : 1.5));
     const img = iconImage(`b:${b.kind}:${s.color}`, () => buildingSvg(b.kind, s.color, 64));
     if (b.built < 1) this.drawConstruction(b, p, size, img);
     else if (img) ctx.drawImage(img, p.x - size / 2, p.y - size / 2, size, size);
