@@ -15,10 +15,10 @@ const AUTOSAVE_YEARS: f32 = 10.0;
 
 fn slot_name(s: u8) -> &'static str {
     match s {
-        0 => "自動記録",
-        1 => "記録 一",
-        2 => "記録 二",
-        _ => "記録 三",
+        0 => t!("自動記録", "Autosave", "自动存档"),
+        1 => t!("記録 一", "Slot 1", "存档 一"),
+        2 => t!("記録 二", "Slot 2", "存档 二"),
+        _ => t!("記録 三", "Slot 3", "存档 三"),
     }
 }
 
@@ -26,13 +26,13 @@ impl Game {
     /// 記録を作れるか（できない理由）
     pub(super) fn can_save(&self) -> Result<(), &'static str> {
         if self.screen != Screen::Playing {
-            return Err("対局中でなければ記録できない");
+            return Err(t!("対局中でなければ記録できない", "You can only save during a game", "只有在对局中才能保存"));
         }
         if self.tut.is_some() {
-            return Err("チュートリアル中は記録できない");
+            return Err(t!("チュートリアル中は記録できない", "Cannot save during the tutorial", "教程中无法保存"));
         }
         if self.world.game_over.is_some() {
-            return Err("勝敗が決したので記録できない");
+            return Err(t!("勝敗が決したので記録できない", "The game is over and cannot be saved", "胜负已分，无法保存"));
         }
         Ok(())
     }
@@ -40,13 +40,13 @@ impl Game {
     /// 記録の一覧に出す見出し
     fn save_meta(&self) -> String {
         let n = &self.world.nations[self.world.player];
-        let era = if self.world.era == Era::Spring { "春秋" } else { "戦国" };
-        let mut s = format!("{}　紀元前{}年（{}）　城邑{}", n.name, self.world.year_bc(), era, n.cities);
+        let era = if self.world.era == Era::Spring { t!("春秋", "Spring & Autumn", "春秋") } else { t!("戦国", "Warring States", "战国") };
+        let mut s = tf!("{}　紀元前{}年（{}）　城邑{}", "{}  {} BC ({})  {} cities", "{}　公元前{}年（{}）　城邑{}", crate::lang::tx(n.name), self.world.year_bc(), era, n.cities);
         if self.world.heroic {
-            s.push_str("　英霊");
+            s.push_str(t!("　英霊", "  Spirits", "　英灵"));
         }
         if self.world.descent.is_some() {
-            s.push_str("　上帝降臨");
+            s.push_str(t!("　上帝降臨", "  Descent", "　上帝降临"));
         }
         s
     }
@@ -85,16 +85,16 @@ impl Game {
     pub fn load_bytes(&mut self, data: &[u8]) -> RResult<()> {
         let mut r = Reader::new(data);
         if r.bytes(4).ok() != Some(&MAGIC[..]) {
-            return Err("春秋戦国の記録ではない".into());
+            return Err(t!("春秋戦国の記録ではない", "This is not a Warring States save", "这不是春秋战国的存档").into());
         }
         let ver = r.u32()?;
         if ver != SAVE_VERSION {
-            return Err(format!("記録の形式が違う（記録は第{}版、このゲームは第{}版）", ver, SAVE_VERSION));
+            return Err(tf!("記録の形式が違う（記録は第{}版、このゲームは第{}版）", "Different save format (the save is version {}, this game is version {})", "存档格式不同（存档为第{}版，本游戏为第{}版）", ver, SAVE_VERSION));
         }
         let dims = [MAP_W, MAP_H, NATIONS.len(), HISTORY.len(), TRIBES.len(), HEROES.len()];
         for d in dims {
             if r.usize()? != d {
-                return Err("別の版のゲームで作られた記録で、読み込めない".into());
+                return Err(t!("別の版のゲームで作られた記録で、読み込めない", "This save was made by another version of the game and cannot be loaded", "该存档由其他版本的游戏创建，无法读取").into());
             }
         }
         let seed = r.u32()?;
@@ -171,7 +171,7 @@ impl Game {
         platform::save_slot(slot, &data, &meta);
         self.autosave_years = self.world.years;
         if !quiet {
-            self.notice(&format!("{}に記録した（{}）", slot_name(slot), meta));
+            self.notice(&tf!("{}に記録した（{}）", "Saved to {} ({})", "已保存到{}（{}）", slot_name(slot), meta));
         }
     }
 
@@ -187,12 +187,12 @@ impl Game {
         match self.load_bytes(data) {
             Ok(()) => {
                 let meta = self.save_meta();
-                self.notice(&format!("記録を読み込んだ（{}）", meta));
-                let s = format!("記録から再開した：{}", meta);
+                self.notice(&tf!("記録を読み込んだ（{}）", "Loaded ({})", "已读取存档（{}）", meta));
+                let s = tf!("記録から再開した：{}", "Resumed from a save: {}", "从存档继续：{}", meta);
                 self.world.push_msg(s, [0.8, 0.95, 1.0]);
             }
             Err(e) => {
-                self.notice(&format!("読み込めなかった：{}", e));
+                self.notice(&tf!("読み込めなかった：{}", "Could not load: {}", "无法读取：{}", e));
             }
         }
     }
@@ -216,7 +216,6 @@ impl Game {
             x1: w,
             y1: h,
             label: BLOCK_LABEL.to_string(),
-            sub: String::new(),
             key: 0,
             enabled: false,
             act: Act::Noop,
@@ -224,17 +223,19 @@ impl Game {
         });
         self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + pw, y0 + ph);
         self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + pw - 3.0, y0 + ph - 3.0, 16.0);
-        self.gfx.text_shadow("記録", x0 + 24.0, y0 + 10.0, 120.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
+        let title = t!("記録", "Saves", "存档");
+        let nx = x0 + 24.0 + self.gfx.measure(title, Font::Big) + 18.0;
+        self.gfx.text_shadow(title, x0 + 24.0, y0 + 10.0, 160.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
         self.gfx.text(
-            platform::STORAGE_NOTE,
-            x0 + 90.0,
+            platform::storage_note(),
+            nx,
             y0 + 14.0,
-            pw - 200.0,
+            x0 + pw - 110.0 - nx,
             34.0,
             Font::Small,
             [0.85, 0.82, 0.75, 1.0],
         );
-        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, "閉じる", "", 0, true, Act::CloseOverlay, "");
+        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, t!("閉じる", "Close", "关闭"), "", 0, true, Act::CloseOverlay, "");
 
         let can = self.can_save();
         let playing = self.screen == Screen::Playing && self.tut.is_none();
@@ -255,10 +256,10 @@ impl Game {
             match &info {
                 Some((meta, date)) => {
                     self.gfx.text(meta, tx, y + 8.0, text_w, 22.0, Font::Normal, tc);
-                    self.gfx.text(&format!("保存 {}", date), tx, y + 32.0, text_w, 20.0, Font::Small, dim);
+                    self.gfx.text(&tf!("保存 {}", "Saved {}", "保存于 {}", date), tx, y + 32.0, text_w, 20.0, Font::Small, dim);
                 }
                 None => {
-                    let t = if s == 0 { "（まだ無い。対局中は10年ごとに自動で記録する）" } else { "（空き）" };
+                    let t = if s == 0 { t!("（まだ無い。対局中は10年ごとに自動で記録する）", "(none yet; during a game it saves every 10 years)", "（暂无。对局中每10年自动保存）") } else { t!("（空き）", "(empty)", "（空）") };
                     self.gfx.text(t, tx, y + 18.0, text_w, 22.0, Font::Normal, dim);
                 }
             }
@@ -266,34 +267,34 @@ impl Game {
             // 右から：書き出す・読込・保存
             let has = info.is_some();
             let ex = bxr - bw;
-            self.add_button(ex, by, ex + bw, by + 32.0, "書き出す", "", 0, has, Act::ExportSlot(s), "この記録をファイルとして保存する（別の端末へ移す・控えにする）");
+            self.add_button(ex, by, ex + bw, by + 32.0, t!("書き出す", "Export", "导出"), "", 0, has, Act::ExportSlot(s), t!("この記録をファイルとして保存する（別の端末へ移す・控えにする）", "Save this as a file (to move it to another PC or keep a backup)", "将此存档保存为文件（用于转移到其他电脑或备份）"));
             let lx = ex - bw - 6.0;
-            let tip = if playing { "この記録から再開する（いまの対局は失われる。必要なら先に記録する）" } else { "この記録から再開する" };
-            self.add_button(lx, by, lx + bw, by + 32.0, "読込", "", 0, has, Act::LoadSlot(s), tip);
+            let tip = if playing { t!("この記録から再開する（いまの対局は失われる。必要なら先に記録する）", "Resume from this save (the current game will be lost; save it first if needed)", "从此存档继续（当前对局将丢失，如有需要请先保存）") } else { t!("この記録から再開する", "Resume from this save", "从此存档继续") };
+            self.add_button(lx, by, lx + bw, by + 32.0, t!("読込", "Load", "读取"), "", 0, has, Act::LoadSlot(s), tip);
             if s > 0 {
                 let sx = lx - bw - 6.0;
                 let tip = match can {
                     Ok(()) => {
                         if has {
-                            "いまの対局をこの枠に記録する（上書き）"
+                            t!("いまの対局をこの枠に記録する（上書き）", "Save the current game in this slot (overwrite)", "将当前对局保存到此栏位（覆盖）")
                         } else {
-                            "いまの対局をこの枠に記録する"
+                            t!("いまの対局をこの枠に記録する", "Save the current game in this slot", "将当前对局保存到此栏位")
                         }
                     }
                     Err(e) => e,
                 };
-                self.add_button(sx, by, sx + bw, by + 32.0, "保存", "", 0, can.is_ok(), Act::SaveSlot(s), tip);
+                self.add_button(sx, by, sx + bw, by + 32.0, t!("保存", "Save", "保存"), "", 0, can.is_ok(), Act::SaveSlot(s), tip);
             }
             y += row;
         }
         let by = y0 + ph - 54.0;
-        self.add_button(bx0, by, bx0 + 260.0, by + 40.0, "ファイルから読み込む", "", 0, true, Act::ImportFile, "書き出した記録ファイル（.yysav）を選んで再開する");
+        self.add_button(bx0, by, bx0 + 260.0, by + 40.0, t!("ファイルから読み込む", "Load from file", "从文件读取"), "", 0, true, Act::ImportFile, t!("書き出した記録ファイル（.yysav）を選んで再開する", "Choose an exported save file (.yysav) to resume", "选择导出的存档文件（.yysav）继续游戏"));
         if let Err(e) = can {
             if self.screen == Screen::Playing {
                 self.gfx.text(e, bx0 + 280.0, by + 10.0, bx1 - bx0 - 290.0, 22.0, Font::Normal, dim);
             }
         } else {
-            self.gfx.text("F5 でこの画面を開く", bx0 + 280.0, by + 10.0, bx1 - bx0 - 290.0, 22.0, Font::Normal, dim);
+            self.gfx.text(t!("F5 でこの画面を開く", "F5 opens this screen", "按 F5 打开此画面"), bx0 + 280.0, by + 10.0, bx1 - bx0 - 290.0, 22.0, Font::Normal, dim);
         }
         // 説明（ツールチップ）：対局中は共通の仕組みで出るので、タイトル画面だけ
         if self.screen != Screen::Title {

@@ -35,6 +35,10 @@ pub mod js {
         pub fn js_export(slot: u32);
         pub fn js_import();
 
+        pub fn js_lang_get() -> u32;
+        pub fn js_lang_save(lang: u32);
+        pub fn js_font_lang(lang: u32);
+
         pub fn js_fullscreen_toggle();
         pub fn js_is_fullscreen() -> u32;
     }
@@ -87,7 +91,40 @@ pub fn install_panic_hook() {
 // ------------------------------------------------------------ 記録（ブラウザの IndexedDB）
 
 /// 記録画面に出す説明
-pub const STORAGE_NOTE: &str = "記録はこのブラウザに保存される（サイトのデータを消すと失われる）。別の端末へ移すときや控えには、書き出したファイルを読み込む";
+pub fn storage_note() -> &'static str {
+    t!(
+        "記録はこのブラウザに保存される（サイトのデータを消すと失われる）。別の端末へ移すときや控えには、書き出したファイルを読み込む",
+        "Saves are kept in this browser (clearing the site's data deletes them). To move them to another device or keep a backup, export a file and load it there.",
+        "存档保存在此浏览器中（清除网站数据后会丢失）。如需转移到其他设备或备份，请导出文件后再读取。"
+    )
+}
+
+// ------------------------------------------------------------ 表示言語
+
+/// 起動時の表示言語：URL の ?lang=、保存した設定、ブラウザの言語の順（日本語・中国語・それ以外は英語）
+pub fn initial_lang() -> crate::lang::Lang {
+    use crate::lang::Lang;
+    #[cfg(target_arch = "wasm32")]
+    {
+        return match unsafe { js::js_lang_get() } {
+            0 => Lang::Ja,
+            2 => Lang::Zh,
+            _ => Lang::En,
+        };
+    }
+    #[allow(unreachable_code)]
+    Lang::Ja
+}
+
+/// 表示言語をブラウザに覚えさせる
+pub fn save_lang(l: crate::lang::Lang) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        js::js_lang_save(l as u32)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = l;
+}
 
 /// 記録を枠に保存する（非同期。結果はブラウザ側から通知される）
 pub fn save_slot(slot: u8, data: &[u8], meta: &str) {

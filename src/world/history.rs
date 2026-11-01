@@ -47,13 +47,13 @@ pub enum HKind {
 impl HKind {
     pub fn label(self) -> &'static str {
         match self {
-            HKind::Hero => "英雄",
-            HKind::Sage => "諸子百家",
-            HKind::Minister => "政治指導者",
-            HKind::Revolt => "反乱",
-            HKind::Usurp => "簒奪",
-            HKind::Restore => "復辟",
-            HKind::Disaster => "大敗",
+            HKind::Hero => t!("英雄", "Hero", "英雄"),
+            HKind::Sage => t!("諸子百家", "Philosopher", "诸子百家"),
+            HKind::Minister => t!("政治指導者", "Statesman", "政治家"),
+            HKind::Revolt => t!("反乱", "Revolt", "叛乱"),
+            HKind::Usurp => t!("簒奪", "Usurpation", "篡位"),
+            HKind::Restore => t!("復辟", "Restoration", "复辟"),
+            HKind::Disaster => t!("大敗", "Disaster", "大败"),
         }
     }
     /// 国にとって不利な出来事か
@@ -260,21 +260,21 @@ impl World {
                     let nat = &mut self.nations[n];
                     nat.figures.retain(|f| f.name != name);
                     nat.figures.push(Person { name, eco, mil, until });
-                    let mut s = String::from(name);
+                    let mut s = String::from(tx(name));
                     if eco != 0.0 {
-                        s.push_str(&format!(" 生産{:+.0}%", eco * 100.0));
+                        s.push_str(&tf!(" 生産{:+.0}%", " production {:+.0}%", " 生产{:+.0}%", eco * 100.0));
                     }
                     if mil != 0.0 {
-                        s.push_str(&format!(" 武{:+.0}%", mil * 100.0));
+                        s.push_str(&tf!(" 武{:+.0}%", " military {:+.0}%", " 武{:+.0}%", mil * 100.0));
                     }
-                    s.push_str(&format!("（{}年）", yrs.min((START_BC - END_BC) as f32) as i32));
+                    s.push_str(&tf!("（{}年）", " ({} years)", "（{}年）", yrs.min((START_BC - END_BC) as f32) as i32));
                     notes.push(s);
                 }
                 Dismiss(name) => {
                     let nat = &mut self.nations[n];
                     if nat.figures.iter().any(|f| f.name == name) {
                         nat.figures.retain(|f| f.name != name);
-                        notes.push(format!("{} が去る", name));
+                        notes.push(tf!("{} が去る", "{} departs", "{}离去", tx(name)));
                     }
                 }
                 Grant(a, b, c) => {
@@ -282,7 +282,7 @@ impl World {
                     r[0] += a;
                     r[1] += b;
                     r[2] += c;
-                    notes.push(format!("糧{:.0} 木{:.0} 銅{:.0}", a, b, c));
+                    notes.push(tf!("糧{:.0} 木{:.0} 銅{:.0}", "food {:.0}, wood {:.0}, bronze {:.0}", "粮{:.0} 木{:.0} 铜{:.0}", a, b, c));
                 }
                 Train(x) => {
                     let cap = self.power_cap();
@@ -296,7 +296,7 @@ impl World {
                         }
                     }
                     if k > 0 {
-                        notes.push(format!("兵{}人の能力{:+.1}", k, x));
+                        notes.push(tf!("兵{}人の能力{:+.1}", "{} soldiers' power {:+.1}", "{}名士兵能力{:+.1}", k, x));
                     }
                 }
                 Levy(cnt) => {
@@ -310,7 +310,7 @@ impl World {
                         }
                     }
                     if k > 0 {
-                        notes.push(format!("戈兵{}人が馳せ参じる", k));
+                        notes.push(tf!("戈兵{}人が馳せ参じる", "{} halberdiers rally to the capital", "{}名戈兵赶来效命", k));
                     }
                 }
                 Purge(f) => {
@@ -326,7 +326,7 @@ impl World {
                         self.kill_unit(i);
                     }
                     if k > 0 {
-                        notes.push(format!("兵{}人を失う", k));
+                        notes.push(tf!("兵{}人を失う", "{} soldiers lost", "损失{}名士兵", k));
                     }
                 }
                 Plunder(f) => {
@@ -336,18 +336,18 @@ impl World {
                     for r in self.nations[n].res.iter_mut() {
                         *r *= 1.0 - f;
                     }
-                    notes.push(format!("蓄えの{:.0}%を失う", f * 100.0));
+                    notes.push(tf!("蓄えの{:.0}%を失う", "{:.0}% of stores lost", "损失{:.0}%的储备", f * 100.0));
                 }
                 House(h) => {
                     if self.nations[n].house != h {
-                        notes.push(format!("君主家：{} → {}", self.nations[n].house, h));
+                        notes.push(tf!("君主家：{} → {}", "ruling house: {} → {}", "君主家：{} → {}", tx(self.nations[n].house), tx(h)));
                         self.nations[n].house = h;
                     }
                 }
                 Hezong(t) => {
                     if self.nations[t].alive && !self.coalitions.iter().any(|c| c.target == t) && self.start_coalition_ex(CoalKind::Hezong, t, false) {
                         let c = self.coalitions.last().unwrap();
-                        notes.push(format!("{}か国の合従軍が{}を攻める（盟主{}）", c.members.len(), self.nations[t].name, self.nations[c.leader].name));
+                        notes.push(tf!("{}か国の合従軍が{}を攻める（盟主{}）", "an alliance of {} states attacks {} (led by {})", "{}国合纵军进攻{}（盟主{}）", c.members.len(), tx(self.nations[t].name), tx(self.nations[c.leader].name)));
                     }
                 }
                 Breakup => {
@@ -360,7 +360,7 @@ impl World {
                         }
                     }
                     if any {
-                        notes.push(format!("{}を討つ連合が瓦解", self.nations[n].name));
+                        notes.push(tf!("{}を討つ連合が瓦解", "the coalition against {} collapses", "讨伐{}的联军瓦解", tx(self.nations[n].name)));
                     }
                 }
                 Truce(a, b, yrs) => {
@@ -371,14 +371,14 @@ impl World {
                         continue;
                     }
                     // 交戦中のプレイヤーには休戦を受けるか選ばせる
-                    if self.war[a][b] && !self.propose_peace(a, b, yrs, e.title) {
-                        notes.push(format!("{}と{}に{}年の休戦の勧め", self.nations[a].name, self.nations[b].name, yrs as i32));
+                    if self.war[a][b] && !self.propose_peace(a, b, yrs, tx(e.title)) {
+                        notes.push(tf!("{}と{}に{}年の休戦の勧め", "{} and {} are urged to a {}-year truce", "劝{}与{}休战{}年", tx(self.nations[a].name), tx(self.nations[b].name), yrs as i32));
                         continue;
                     }
                     let t = self.years + yrs;
                     self.truce[a][b] = self.truce[a][b].max(t);
                     self.truce[b][a] = self.truce[b][a].max(t);
-                    notes.push(format!("{}と{}が{}年の休戦", self.nations[a].name, self.nations[b].name, yrs as i32));
+                    notes.push(tf!("{}と{}が{}年の休戦", "{} and {} agree a {}-year truce", "{}与{}休战{}年", tx(self.nations[a].name), tx(self.nations[b].name), yrs as i32));
                 }
                 War(a, b) => {
                     // プレイヤーの国に勝手に宣戦させない
@@ -386,19 +386,19 @@ impl World {
                         continue;
                     }
                     if self.declare_war(a, b, true) {
-                        notes.push(format!("{}が{}に攻め込む", self.nations[a].name, self.nations[b].name));
+                        notes.push(tf!("{}が{}に攻め込む", "{} invades {}", "{}进攻{}", tx(self.nations[a].name), tx(self.nations[b].name)));
                     }
                 }
             }
         }
         self.refresh_mods();
         self.territory_dirty = true;
-        let name = self.nations[n].name;
-        let head = format!("【{}・{}】{}", name, e.kind.label(), e.title);
+        let name = tx(self.nations[n].name);
+        let head = tf!("【{}・{}】{}", "[{} · {}] {}", "【{}・{}】{}", name, e.kind.label(), tx(e.title));
         // 本文はバナーと史記に任せ、記録欄は見出しと効果だけにする
         let mut msg = head;
         if !notes.is_empty() {
-            msg.push_str(&format!("（{}）", notes.join("、")));
+            msg.push_str(&tf!("（{}）", " ({})", "（{}）", notes.join(t!("、", "; ", "；"))));
         }
         self.push_msg(msg, e.kind.color());
         // 大きな出来事はバナーで知らせる（小国の出来事は記録のみ）
@@ -409,11 +409,11 @@ impl World {
                 _ => false,
             });
         if involves_player || NATIONS[n].seven {
-            let mut text = e.text.to_string();
+            let mut text = tx(e.text).to_string();
             if !notes.is_empty() {
-                text.push_str(&format!("\n{}", notes.join("　")));
+                text.push_str(&format!("\n{}", notes.join(t!("　", "; ", "；"))));
             }
-            let title = format!("{}　{}", name, e.title);
+            let title = format!("{}　{}", name, tx(e.title));
             self.queue_banner(Banner { title, text, t: 7.0 });
         }
     }

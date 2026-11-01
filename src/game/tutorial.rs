@@ -178,7 +178,7 @@ pub(super) const STEPS: &[Step] = &[
     },
     Step {
         title: "チュートリアル完了",
-        body: "目的：紀元前221年まで生き残って国力1位になるか、天下を統一すること。\n\n困ったら F1 でヘルプ。文字が小さいときは Ctrl＋＋ で拡大、F11 で全画面にできます。\n\n「このまま続ける」で、この国のまま遊べます（他国からも攻められるようになります）。",
+        body: "目的：紀元前221年までに天下を統一すること（間に合わなければ上帝が秦に降臨する）。\n\n困ったら F1 でヘルプ。文字が小さいときは Ctrl＋＋ で拡大、F11 で全画面にできます。\n\n「このまま続ける」で、この国のまま遊べます（他国からも攻められるようになります）。",
         goal: Goal::Finish,
         hl: &[],
     },
@@ -329,10 +329,6 @@ impl Game {
         }
     }
 
-    pub(super) fn tut_is_next_step(&self) -> bool {
-        self.tut.as_ref().map_or(false, |t| STEPS[t.step].goal == Goal::Next)
-    }
-
     fn hl_world(&self, h: Hl) -> Vec<V2> {
         let pl = self.world.player;
         let cap = self.world.nations[pl].capital.and_then(|h| self.world.bld(h)).map(|b| b.center()).unwrap_or(self.world.nations[pl].home);
@@ -415,7 +411,7 @@ impl Game {
             let y1 = y0 + 30.0;
             let x0 = w - 330.0;
             self.art.draw_stone_panel(&self.gfx, x0, y0, w - 10.0, y1);
-            let s = if done { "✓ できました！".to_string() } else { format!("チュートリアル {}/{}：この画面を閉じると続きます", step + 1, STEPS.len()) };
+            let s = if done { t!("✓ できました！", "✓ Done!", "✓ 完成了！").to_string() } else { tf!("チュートリアル {}/{}：この画面を閉じると続きます", "Tutorial {}/{}: close this screen to continue", "教程 {}/{}：关闭此画面后继续", step + 1, STEPS.len()) };
             let c = if done { [0.5, 1.0, 0.5, 1.0] } else { [0.95, 0.88, 0.6, 1.0] };
             self.gfx.text(&s, x0 + 12.0, y0 + 5.0, 310.0, 22.0, Font::Small, c);
             if let Some(t) = &mut self.tut {
@@ -424,36 +420,36 @@ impl Game {
             return;
         }
         let tw = PANEL_W - 36.0;
-        let body_h = self.gfx.measure_h(st.body, Font::Normal, tw);
+        let body_h = self.gfx.measure_h(crate::lang::tx(st.body), Font::Normal, tw);
         let y1 = y0 + 92.0 + body_h + 56.0;
         self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + PANEL_W, y1);
         self.art.draw_inset_box(&self.gfx, x0 + 10.0, y0 + 78.0, x0 + PANEL_W - 10.0, y1 - 52.0);
         self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + PANEL_W - 3.0, y1 - 3.0, 14.0);
-        let hdr = format!("チュートリアル　{} / {}", step + 1, STEPS.len());
+        let hdr = tf!("チュートリアル　{} / {}", "Tutorial  {} / {}", "教程　{} / {}", step + 1, STEPS.len());
         self.gfx.text(&hdr, x0 + 18.0, y0 + 10.0, tw, 20.0, Font::Small, [0.75, 0.7, 0.6, 1.0]);
         // 進み具合
         let f = (step + 1) as f32 / STEPS.len() as f32;
         self.gfx.fill_rect(x0 + 18.0, y0 + 32.0, x0 + PANEL_W - 18.0, y0 + 36.0, [0.25, 0.2, 0.15, 1.0]);
         self.gfx.fill_rect(x0 + 18.0, y0 + 32.0, x0 + 18.0 + (PANEL_W - 36.0) * f, y0 + 36.0, [0.95, 0.75, 0.3, 1.0]);
-        self.gfx.text(st.title, x0 + 18.0, y0 + 44.0, tw, 34.0, Font::Big, [1.0, 0.88, 0.5, 1.0]);
-        self.gfx.text(st.body, x0 + 18.0, y0 + 86.0, tw, body_h + 10.0, Font::Normal, [0.95, 0.93, 0.88, 1.0]);
+        self.gfx.text(crate::lang::tx(st.title), x0 + 18.0, y0 + 44.0, tw, 34.0, Font::Big, [1.0, 0.88, 0.5, 1.0]);
+        self.gfx.text(crate::lang::tx(st.body), x0 + 18.0, y0 + 86.0, tw, body_h + 10.0, Font::Normal, [0.95, 0.93, 0.88, 1.0]);
         let by = y1 - 46.0;
         if done {
-            self.gfx.text("✓ できました！", x0 + 18.0, by + 4.0, tw, 30.0, Font::Big, [0.5, 1.0, 0.5, 1.0]);
+            self.gfx.text(t!("✓ できました！", "✓ Done!", "✓ 完成了！"), x0 + 18.0, by + 4.0, tw, 30.0, Font::Big, [0.5, 1.0, 0.5, 1.0]);
         } else {
             match st.goal {
                 Goal::Next => {
-                    self.add_button(x0 + PANEL_W - 150.0, by, x0 + PANEL_W - 18.0, by + 34.0, "次へ ▶", "", 0x0D, true, Act::TutNext, "");
-                    self.add_button(x0 + 18.0, by, x0 + 128.0, by + 34.0, "やめる", "", 0, true, Act::TutQuit, "チュートリアルを終えて、このまま遊ぶ");
+                    self.add_button(x0 + PANEL_W - 150.0, by, x0 + PANEL_W - 18.0, by + 34.0, t!("次へ ▶", "Next ▶", "下一步 ▶"), "", 0x0D, true, Act::TutNext, "");
+                    self.add_button(x0 + 18.0, by, x0 + 128.0, by + 34.0, t!("やめる", "Quit", "退出"), "", 0, true, Act::TutQuit, t!("チュートリアルを終えて、このまま遊ぶ", "End the tutorial and keep playing", "结束教程，继续游玩"));
                 }
                 Goal::Finish => {
-                    self.add_button(x0 + PANEL_W - 200.0, by, x0 + PANEL_W - 18.0, by + 34.0, "このまま続ける", "", 0x0D, true, Act::TutQuit, "");
-                    self.add_button(x0 + 18.0, by, x0 + 160.0, by + 34.0, "タイトルへ", "", 0, true, Act::Restart, "");
+                    self.add_button(x0 + PANEL_W - 200.0, by, x0 + PANEL_W - 18.0, by + 34.0, t!("このまま続ける", "Keep playing", "继续游玩"), "", 0x0D, true, Act::TutQuit, "");
+                    self.add_button(x0 + 18.0, by, x0 + 160.0, by + 34.0, t!("タイトルへ", "Title screen", "返回标题"), "", 0, true, Act::Restart, "");
                 }
                 _ => {
-                    self.gfx.text("達成すると自動で進みます", x0 + 18.0, by + 8.0, 220.0, 24.0, Font::Small, [0.7, 0.68, 0.6, 1.0]);
-                    self.add_button(x0 + PANEL_W - 228.0, by, x0 + PANEL_W - 128.0, by + 34.0, "飛ばす", "", 0, true, Act::TutNext, "この段を飛ばす");
-                    self.add_button(x0 + PANEL_W - 118.0, by, x0 + PANEL_W - 18.0, by + 34.0, "やめる", "", 0, true, Act::TutQuit, "チュートリアルを終えて、このまま遊ぶ");
+                    self.gfx.text(t!("達成すると自動で進みます", "Advances when done", "完成后自动继续"), x0 + 18.0, by + 8.0, PANEL_W - 228.0 - 26.0, 24.0, Font::Small, [0.7, 0.68, 0.6, 1.0]);
+                    self.add_button(x0 + PANEL_W - 228.0, by, x0 + PANEL_W - 128.0, by + 34.0, t!("飛ばす", "Skip", "跳过"), "", 0, true, Act::TutNext, t!("この段を飛ばす", "Skip this step", "跳过此步"));
+                    self.add_button(x0 + PANEL_W - 118.0, by, x0 + PANEL_W - 18.0, by + 34.0, t!("やめる", "Quit", "退出"), "", 0, true, Act::TutQuit, t!("チュートリアルを終えて、このまま遊ぶ", "End the tutorial and keep playing", "结束教程，继续游玩"));
                 }
             }
         }
@@ -467,5 +463,19 @@ impl Game {
         let r = (self.zoom * 1.1).max(16.0) + 4.0 * (self.clock * 5.0).sin();
         self.gfx.stroke_circle(sx, sy, r, 3.0, c);
         self.gfx.text_shadow("▼", sx - 20.0, sy - r - 30.0, 40.0, 28.0, Font::BigCenter, c);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::STEPS;
+
+    /// チュートリアルの全段に英語・中国語の訳がある
+    #[test]
+    fn tutorial_translated() {
+        for st in STEPS {
+            assert!(crate::lang::has(st.title), "{}", st.title);
+            assert!(crate::lang::has(st.body), "{}", st.body);
+        }
     }
 }

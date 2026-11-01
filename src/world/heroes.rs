@@ -96,17 +96,17 @@ impl World {
     /// 召喚できるか
     pub fn can_summon(&self, n: usize, hero: usize, hs: &[Handle]) -> Result<(), &'static str> {
         if !self.heroic {
-            return Err("英霊モードではない");
+            return Err(t!("英霊モードではない", "Heroic Spirits mode is off", "未开启英灵模式"));
         }
         if self.hero_of(n).is_some() {
-            return Err("英霊は一国に一体だけ");
+            return Err(t!("英霊は一国に一体だけ", "Only one heroic spirit per state", "每国只能有一位英灵"));
         }
         if self.hero_on_field(hero) {
-            return Err("この英霊は既に他国に召喚されている");
+            return Err(t!("この英霊は既に他国に召喚されている", "Another state has already summoned this spirit", "该英灵已被他国召唤"));
         }
         let (v, _) = self.sacrifice_power(n, hs);
         if v.is_empty() {
-            return Err("自国領内の民を選んで生贄にする");
+            return Err(t!("自国領内の民を選んで生贄にする", "Select workers inside your territory to sacrifice", "请选择己方领土内的民作为祭品"));
         }
         Ok(())
     }
@@ -127,13 +127,13 @@ impl World {
         let power = (p * d.mult).max(1.0);
         let h = self.spawn_unit(n, d.kind, c, power);
         self.unit_mut(h).unwrap().hero = hero as u8;
-        let who = self.nations[n].name;
+        let who = tx(self.nations[n].name);
         if n == self.player {
-            let text = format!("民{}人を生贄に捧げ、{}（{}）の英霊が降り立った。能力 {:.1}（生贄 {:.1} ×{:.1}）", v.len(), d.name, d.era, power, p, d.mult);
+            let text = tf!("民{}人を生贄に捧げ、{}（{}）の英霊が降り立った。能力 {:.1}（生贄 {:.1} ×{:.1}）", "{} workers were sacrificed, and the spirit of {} ({}) has descended. Power {:.1} (sacrifice {:.1} ×{:.1})", "献祭{}名民，{}（{}）的英灵降临了。能力{:.1}（祭品{:.1}×{:.1}）", v.len(), tx(d.name), tx(d.era), power, p, d.mult);
             self.push_msg(text.clone(), [1.0, 0.85, 0.5]);
-            self.queue_banner(Banner { title: format!("英霊召喚・{}", d.name), text: format!("{}\n{}", d.desc, text), t: 7.0 });
+            self.queue_banner(Banner { title: tf!("英霊召喚・{}", "Heroic Spirit: {}", "召唤英灵・{}", tx(d.name)), text: format!("{}\n{}", tx(d.desc), text), t: 7.0 });
         } else {
-            self.push_msg(format!("{} が英霊・{}を召喚した", who, d.name), [0.95, 0.8, 0.6]);
+            self.push_msg(tf!("{} が英霊・{}を召喚した", "{} summoned the heroic spirit of {}", "{}召唤了英灵{}", who, tx(d.name)), [0.95, 0.8, 0.6]);
         }
         Ok(h)
     }

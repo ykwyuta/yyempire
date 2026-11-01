@@ -323,7 +323,7 @@ fn diplomacy(w: &mut World, n: usize, a: &mut AiState, nsold: usize) {
             if e == w.player && !w.ai_player {
                 if !w.peace_offer[n] && w.offer_cd[n] <= years {
                     w.peace_offer[n] = true;
-                    w.propose_peace(n, e, 10.0, "戦の長期化");
+                    w.propose_peace(n, e, 10.0, t!("戦の長期化", "a long war", "战事旷日持久"));
                 }
             } else {
                 w.make_peace(n, e, 10.0);

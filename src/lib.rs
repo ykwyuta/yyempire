@@ -3,11 +3,14 @@
 //! デスクトップ版の Win32 メッセージループの代わりに、ブラウザ側（web/main.js）から
 //! 入力イベントとフレーム更新を受け取る。描画は gfx.rs が WebGL2 / Canvas2D に橋渡しする。
 
+#[macro_use]
+mod lang;
 mod ai;
 mod art;
 mod game;
 mod geo;
 mod gfx;
+mod i18n;
 mod path;
 pub mod platform;
 mod rng;
@@ -43,6 +46,7 @@ fn push(e: Ev) {
 #[no_mangle]
 pub extern "C" fn yy_init(w: u32, h: u32) {
     platform::install_panic_hook();
+    lang::set_lang(platform::initial_lang());
     let gfx = gfx::Gfx::new(w.max(1), h.max(1));
     let game = game::Game::new(gfx);
     GAME.with(|g| *g.borrow_mut() = Some(game));

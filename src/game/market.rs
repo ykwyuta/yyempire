@@ -72,9 +72,9 @@ impl Game {
         self.gfx.fill_rect(0.0, 0.0, w, h, [0.0, 0.0, 0.0, 0.45]);
         self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + pw, y0 + ph);
         self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + pw - 3.0, y0 + ph - 3.0, 16.0);
-        self.gfx.text_shadow("交易", x0 + 24.0, y0 + 10.0, 120.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
-        self.gfx.text("商人は生産力の高い国に集まり、領内を通るだけで税（銭）を納める。銭で資源を買い、山岳民・遊牧民を傭兵に雇える", x0 + 100.0, y0 + 16.0, pw - 220.0, 24.0, Font::Small, [0.85, 0.82, 0.75, 1.0]);
-        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, "閉じる", "", 0, true, Act::CloseOverlay, "");
+        self.gfx.text_shadow(t!("交易", "Trade", "贸易"), x0 + 24.0, y0 + 10.0, 120.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
+        self.gfx.text(t!("商人は生産力の高い国に集まり、領内を通るだけで税（銭）を納める。銭で資源を買い、山岳民・遊牧民を傭兵に雇える", "Merchants gather in productive states and pay tax (coin) just by passing through. Use coin to buy resources and hire hill and steppe peoples as mercenaries", "商人聚集于生产力高的国家，只要途经领内就会缴税（钱）。可用钱购买资源、雇佣山地与游牧民为佣兵"), x0 + 100.0, y0 + 16.0, pw - 220.0, 24.0, Font::Small, [0.85, 0.82, 0.75, 1.0]);
+        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, t!("閉じる", "Close", "关闭"), "", 0, true, Act::CloseOverlay, "");
 
         let tc = [0.95, 0.92, 0.85, 1.0];
         let dim = [0.72, 0.69, 0.62, 1.0];
@@ -87,7 +87,7 @@ impl Game {
         let mut y = ly0 + 10.0;
         let n = &self.world.nations[pl];
         let (coin, inc, tax) = (n.coin, n.coin_income, n.tax as usize);
-        let s = format!("{}の銭　{:.0}　（{:+.1}/秒）", n.name, coin, inc);
+        let s = tf!("{}の銭　{:.0}　（{:+.1}/秒）", "Coin of {}  {:.0}  ({:+.1}/s)", "{}的钱　{:.0}　（{:+.1}/秒）", crate::lang::tx(n.name), coin, inc);
         self.gfx.text(&s, lx0 + 12.0, y, lw - 24.0, 24.0, Font::Normal, gold);
         y += 30.0;
 
@@ -107,23 +107,24 @@ impl Game {
         }
         let total_m = tr.count(|k| k == CaravanKind::Merchant);
         let total_w = tr.count(|k| matches!(k, CaravanKind::Western(_)));
-        let s = format!("領内の隊商：商人 {}　西域の商人 {}　部族 {}", here[0], here[1], here[2]);
+        let s = tf!("領内の隊商：商人 {}　西域の商人 {}　部族 {}", "Caravans in our land: merchants {}, Western {}, tribal {}", "领内商队：商人 {}　西域商人 {}　部族 {}", here[0], here[1], here[2]);
         self.gfx.text(&s, lx0 + 12.0, y, lw - 24.0, 22.0, Font::Normal, tc);
         y += 24.0;
-        let s = format!("中原を巡る商人 {}人（中原全体の生産量に比例）　西域の商人 {}人", total_m, total_w);
-        self.gfx.text(&s, lx0 + 12.0, y, lw - 24.0, 20.0, Font::Small, dim);
-        y += 30.0;
+        let s = tf!("中原を巡る商人 {}人（中原全体の生産量に比例）　西域の商人 {}人", "{} merchants travel the Central Plains (grows with total production); {} Western merchants", "周游中原的商人 {}人（与中原总产量成正比）　西域商人 {}人", total_m, total_w);
+        let mh = self.gfx.measure_h(&s, Font::Small, lw - 24.0).max(20.0);
+        self.gfx.text(&s, lx0 + 12.0, y, lw - 24.0, mh, Font::Small, dim);
+        y += mh + 10.0;
 
-        self.gfx.text("税率", lx0 + 12.0, y, 80.0, 22.0, Font::Normal, gold);
+        self.gfx.text(t!("税率", "Tax rate", "税率"), lx0 + 12.0, y, 80.0, 22.0, Font::Normal, gold);
         y += 26.0;
         let tips = [
-            "軽税：税は6割だが、商人が1.5倍集まりやすい",
-            "中税：標準",
-            "重税：税は1.5倍だが、商人が寄りつきにくい（0.55倍）",
+            t!("軽税：税は6割だが、商人が1.5倍集まりやすい", "Light: 60% of the tax, but merchants are 1.5× more likely to come", "轻税：税收为六成，但商人聚集概率为1.5倍"),
+            t!("中税：標準", "Normal: standard", "中税：标准"),
+            t!("重税：税は1.5倍だが、商人が寄りつきにくい（0.55倍）", "Heavy: 1.5× the tax, but merchants stay away (0.55×)", "重税：税收为1.5倍，但商人不愿前来（0.55倍）"),
         ];
         for k in 0..3 {
             let bx = lx0 + 14.0 + k as f32 * 130.0;
-            self.add_button(bx, y, bx + 122.0, y + 30.0, TAX_NAMES[k], "", 0, true, Act::Tax(k as u8), tips[k]);
+            self.add_button(bx, y, bx + 122.0, y + 30.0, tax_name(k), "", 0, true, Act::Tax(k as u8), tips[k]);
             if k == tax {
                 self.gfx.stroke_round(bx, y, bx + 122.0, y + 30.0, 3.0, 2.0, [1.0, 0.9, 0.4, 1.0]);
             }
@@ -134,14 +135,14 @@ impl Game {
 
         self.gfx.fill_rect(lx0 + 10.0, y, lx1 - 10.0, y + 1.0, [0.75, 0.62, 0.34, 0.6]);
         y += 10.0;
-        self.gfx.text("市場で買う", lx0 + 12.0, y, 200.0, 22.0, Font::Normal, gold);
+        self.gfx.text(t!("市場で買う", "Buy at the market", "在市场购买"), lx0 + 12.0, y, 200.0, 22.0, Font::Normal, gold);
         y += 26.0;
         for k in 0..3 {
             let bx = lx0 + 14.0 + k as f32 * 130.0;
-            let lbl = format!("{} +{}", RES_NAMES[k], MARKET_LOT as i32);
+            let lbl = format!("{} +{}", res_name(k), MARKET_LOT as i32);
             let price = self.world.market_price(pl, k);
-            let sub = format!("{}銭", price as i32);
-            let tip = format!("銭{}で{}を{}買う", price as i32, RES_NAMES[k], MARKET_LOT as i32);
+            let sub = tf!("{}銭", "{} coin", "{}钱", price as i32);
+            let tip = tf!("銭{}で{}を{}買う", "Buy {2} {1} for {0} coin", "花{}钱购买{}{}", price as i32, res_name(k), MARKET_LOT as i32);
             self.add_button(bx, y, bx + 122.0, y + 30.0, &lbl, "", 0, coin >= price, Act::Buy(k), &tip);
             self.gfx.text(&sub, bx, y + 32.0, 122.0, 18.0, Font::Small, dim);
         }
@@ -149,7 +150,7 @@ impl Game {
 
         self.gfx.fill_rect(lx0 + 10.0, y, lx1 - 10.0, y + 1.0, [0.75, 0.62, 0.34, 0.6]);
         y += 10.0;
-        self.gfx.text("雇っている傭兵", lx0 + 12.0, y, 200.0, 22.0, Font::Normal, gold);
+        self.gfx.text(t!("雇っている傭兵", "Hired mercenaries", "受雇的佣兵"), lx0 + 12.0, y, 200.0, 22.0, Font::Normal, gold);
         y += 26.0;
         let years = self.world.years;
         let mut mercs: Vec<(usize, i32)> = Vec::new();
@@ -164,11 +165,11 @@ impl Game {
             }
         }
         if mercs.is_empty() {
-            self.gfx.text("いない（右の部族から雇える。雇った部族はその間、自国を襲わない）", lx0 + 20.0, y, lw - 32.0, 40.0, Font::Small, dim);
+            self.gfx.text(t!("いない（右の部族から雇える。雇った部族はその間、自国を襲わない）", "None (hire from the peoples on the right; while hired they will not raid you)", "无（可从右侧部族雇佣，受雇期间不会袭击我国）"), lx0 + 20.0, y, lw - 32.0, 40.0, Font::Small, dim);
         }
         for (t, left) in mercs {
             let cnt = self.world.units.iter().filter(|u| u.alive && u.nation as usize == pl && u.merc_until > 0.0 && u.tribe as usize == t).count();
-            let s = format!("{}の兵 {}　残り{}年", TRIBES.get(t).map_or("?", |d| d.name), cnt, left.max(0));
+            let s = tf!("{}の兵 {}　残り{}年", "{} warriors {}, {} years left", "{}兵 {}　剩余{}年", TRIBES.get(t).map_or("?", |d| crate::lang::tx(d.name)), cnt, left.max(0));
             self.gfx.text(&s, lx0 + 20.0, y, lw - 32.0, 20.0, Font::Small, tc);
             y += 20.0;
             if y > ly1 - 20.0 {
@@ -181,28 +182,29 @@ impl Game {
         self.art.draw_inset_box(&self.gfx, rx0, ry0, rx1, ry1);
         let rw = rx1 - rx0 - 24.0;
         let mut y = ry0 + 10.0;
-        self.gfx.text("西域への道（西域の商人は道の先の地域にだけ来る）", rx0 + 12.0, y, rw, 22.0, Font::Normal, gold);
+        self.gfx.text(t!("西域への道（西域の商人は道の先の地域にだけ来る）", "Roads to the West (Western merchants only visit the lands at the end of a road)", "通往西域之路（西域商人只会来到道路尽头的地区）"), rx0 + 12.0, y, rw, 22.0, Font::Normal, gold);
         y += 26.0;
         let yb = self.world.year_bc();
         for (r, rt) in ROUTES.iter().enumerate() {
             let open = route_open(r, yb);
-            let st = if open { "通じている".to_string() } else { format!("前{}年ごろから", rt.from_bc) };
-            let s = format!("{}　{}", rt.name, st);
+            let st = if open { t!("通じている", "open", "已开通").to_string() } else { tf!("前{}年ごろから", "from about {} BC", "约前{}年起", rt.from_bc) };
+            let s = format!("{}　{}", crate::lang::tx(rt.name), st);
             self.gfx.text(&s, rx0 + 18.0, y, rw, 20.0, Font::Small, if open { [0.82, 0.70, 1.0, 1.0] } else { dim });
             y += 19.0;
-            self.gfx.text(rt.desc, rx0 + 34.0, y, rw - 20.0, 20.0, Font::Small, dim);
-            y += 22.0;
+            let dh = self.gfx.measure_h(crate::lang::tx(rt.desc), Font::Small, rw - 20.0).max(20.0);
+            self.gfx.text(crate::lang::tx(rt.desc), rx0 + 34.0, y, rw - 20.0, dh, Font::Small, dim);
+            y += dh + 2.0;
         }
         y += 6.0;
         self.gfx.fill_rect(rx0 + 10.0, y, rx1 - 10.0, y + 1.0, [0.75, 0.62, 0.34, 0.6]);
         y += 10.0;
         let cost = self.world.merc_cost();
-        let s = format!("山岳民と遊牧民（傭兵は{}人・{}年で{}銭）", MERC_N, MERC_YEARS as i32, cost);
+        let s = tf!("山岳民と遊牧民（傭兵は{}人・{}年で{}銭）", "Hill and steppe peoples (mercenaries: {} for {} years, {} coin)", "山地与游牧民（佣兵{}名・{}年{}钱）", MERC_N, MERC_YEARS as i32, cost);
         self.gfx.text(&s, rx0 + 12.0, y, rw, 22.0, Font::Normal, gold);
         y += 28.0;
         let active: Vec<usize> = (0..TRIBES.len()).filter(|&t| tribe_active(t, yb)).collect();
         if active.is_empty() {
-            self.gfx.text("いまは活動している部族はいない", rx0 + 18.0, y, rw, 20.0, Font::Small, dim);
+            self.gfx.text(t!("いまは活動している部族はいない", "No peoples are active now", "目前没有活动的部族"), rx0 + 18.0, y, rw, 20.0, Font::Small, dim);
         }
         for t in active {
             if y > ry1 - 40.0 {
@@ -212,28 +214,28 @@ impl Game {
             let st = &self.world.trade.tribes[t];
             let raiding_me = self.world.trade.bands.iter().any(|b| b.tribe == t && b.target == pl && b.phase == 0);
             let hired = st.contract[pl] > years;
-            let kind = if td.nomad { "遊牧" } else { "山岳" };
-            let head = format!("{}（{}）", td.name, kind);
+            let kind = if td.nomad { t!("遊牧", "steppe", "游牧") } else { t!("山岳", "hill", "山地") };
+            let head = tf!("{}（{}）", "{} ({})", "{}（{}）", crate::lang::tx(td.name), kind);
             let hc = if raiding_me { [1.0, 0.45, 0.35, 1.0] } else if hired { [0.6, 0.95, 0.6, 1.0] } else { tc };
             self.gfx.text(&head, rx0 + 18.0, y, 230.0, 20.0, Font::Normal, hc);
             let state = if raiding_me {
-                "自国へ来寇中".to_string()
+                t!("自国へ来寇中", "raiding us", "正在侵犯我国").to_string()
             } else if hired {
-                format!("自国に雇われている（残り{}年）", (st.contract[pl] - years).ceil() as i32)
+                tf!("自国に雇われている（残り{}年）", "hired by us ({} years left)", "受雇于我国（剩余{}年）", (st.contract[pl] - years).ceil() as i32)
             } else if st.last.is_empty() {
-                "静か".to_string()
+                t!("静か", "quiet", "平静").to_string()
             } else {
                 st.last.clone()
             };
             self.gfx.text(&state, rx0 + 250.0, y + 2.0, rw - 350.0, 20.0, Font::Small, dim);
             let ok = self.world.can_hire(pl, t);
             let tip = match ok {
-                Ok(()) => format!("{}\n{}の{}を{}人、{}年雇う", td.desc, td.name, if td.nomad { "騎兵" } else { "兵" }, MERC_N, MERC_YEARS as i32),
-                Err(e) => format!("{}\n雇えない：{}", td.desc, e),
+                Ok(()) => tf!("{}\n{}の{}を{}人、{}年雇う", "{}\nHire {3} {1} {2} for {4} years", "{}\n雇佣{}{}{}名，为期{}年", crate::lang::tx(td.desc), crate::lang::tx(td.name), if td.nomad { t!("騎兵", "riders", "骑兵") } else { t!("兵", "warriors", "兵") }, MERC_N, MERC_YEARS as i32),
+                Err(e) => tf!("{}\n雇えない：{}", "{}\nCannot hire: {}", "{}\n无法雇佣：{}", crate::lang::tx(td.desc), e),
             };
-            self.add_button(rx1 - 96.0, y - 2.0, rx1 - 10.0, y + 22.0, "雇う", "", 0, ok.is_ok(), Act::Hire(t), &tip);
+            self.add_button(rx1 - 96.0, y - 2.0, rx1 - 10.0, y + 22.0, t!("雇う", "Hire", "雇佣"), "", 0, ok.is_ok(), Act::Hire(t), &tip);
             y += 22.0;
-            self.gfx.text(td.desc, rx0 + 34.0, y, rw - 130.0, 20.0, Font::Small, [0.6, 0.58, 0.52, 1.0]);
+            self.gfx.text(crate::lang::tx(td.desc), rx0 + 34.0, y, rw - 130.0, 20.0, Font::Small, [0.6, 0.58, 0.52, 1.0]);
             y += 24.0;
         }
     }

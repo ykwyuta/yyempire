@@ -26,7 +26,14 @@ impl Ord for Node {
     }
 }
 
+/// 兵・民の経路の重み（ほぼ最短）
+pub const UNIT_WEIGHT: f32 = 1.15;
+/// 隊商の経路の重み（最短でなくてよいので、探す量を大きく減らす）
+pub const CARAVAN_WEIGHT: f32 = 1.6;
+
 pub struct PathFinder {
+    /// 直前の探索で展開したマスの数（1フレームの予算の計算に使う）
+    pub last_exp: usize,
     g: Vec<f32>,
     parent: Vec<u32>,
     seen: Vec<u32>,
@@ -49,12 +56,13 @@ const DIRS: [(i32, i32, f32); 8] = [
 impl PathFinder {
     pub fn new() -> Self {
         let n = MAP_W * MAP_H;
-        PathFinder { g: vec![0.0; n], parent: vec![0; n], seen: vec![0; n], closed: vec![0; n], stamp: 0, heap: BinaryHeap::new() }
+        PathFinder { last_exp: 0, g: vec![0.0; n], parent: vec![0; n], seen: vec![0; n], closed: vec![0; n], stamp: 0, heap: BinaryHeap::new() }
     }
 
     /// cost: タイルごとの移動コスト（INF=通行不可）。goal から Chebyshev 距離 goal_r 以内に到達したら終了。
     /// 到達不能時は最も近づけた地点までの経路を返す。
-    pub fn find(&mut self, cost: &[f32], start: (i32, i32), goal: (i32, i32), goal_r: i32, max_exp: usize) -> Vec<(i16, i16)> {
+    /// weight: 推定距離の重み（1 なら最短。大きいほど探すマスが減るが、遠回りの経路になりうる）
+    pub fn find(&mut self, cost: &[f32], start: (i32, i32), goal: (i32, i32), goal_r: i32, max_exp: usize, weight: f32) -> Vec<(i16, i16)> {
         self.stamp = self.stamp.wrapping_add(1);
         if self.stamp == 0 {
             self.seen.fill(0);
@@ -128,10 +136,11 @@ impl PathFinder {
                     self.seen[ni] = st;
                     self.g[ni] = ng;
                     self.parent[ni] = i as u32;
-                    self.heap.push(Node { f: ng + heur(nx, ny) * 1.05, idx: ni as u32 });
+                    self.heap.push(Node { f: ng + heur(nx, ny) * weight, idx: ni as u32 });
                 }
             }
         }
+        self.last_exp = exp;
         let end = found.unwrap_or(best.1);
         let mut out = Vec::new();
         let mut c = end;

@@ -27,11 +27,6 @@ impl World {
         self.descent.as_ref().map(|d| (d.start + DESCENT_YEARS - self.years).max(0.0))
     }
 
-    /// 上帝の兵か
-    pub fn divine(&self, i: usize) -> bool {
-        self.units[i].divine
-    }
-
     /// 前221年：上帝が秦に降臨する
     pub(super) fn begin_descent(&mut self) {
         let mut revived = false;
@@ -52,15 +47,14 @@ impl World {
         if let Some(c) = self.nations[QIN].capital {
             self.spawn_divine(c, 8);
         }
-        let head = if revived { "滅びた秦が蘇り、" } else { "" };
-        let text = format!(
-            "紀元前221年、天下はなお定まらない。{}上帝が秦に降臨した。上帝の軍には何者も抗えず、{}年のうちに中華は秦に統一される。",
+        let head = if revived { t!("滅びた秦が蘇り、", "Fallen Qin rises again, and ", "已灭亡的秦国复活，") } else { "" };
+        let text = tf!("紀元前221年、天下はなお定まらない。{}上帝が秦に降臨した。上帝の軍には何者も抗えず、{}年のうちに中華は秦に統一される。", "It is 221 BC and the realm is still divided. {}the Supreme Deity has descended upon Qin. None can withstand the Deity's army, and within {} years China will be unified under Qin.", "公元前221年，天下仍未平定。{}上帝降临于秦。上帝之军无人可挡，{}年之内中华将归于秦。",
             head, DESCENT_YEARS as i32
         );
-        self.push_msg("上帝が秦に降臨した".to_string(), [1.0, 0.85, 0.3]);
+        self.push_msg(t!("上帝が秦に降臨した", "The Supreme Deity has descended upon Qin", "上帝降临于秦").to_string(), [1.0, 0.85, 0.3]);
         self.banner = None;
         self.banner_queue.clear();
-        self.queue_banner(Banner { title: "上帝降臨".to_string(), text, t: 12.0 });
+        self.queue_banner(Banner { title: t!("上帝降臨", "Descent of the Supreme Deity", "上帝降临").to_string(), text, t: 12.0 });
     }
 
     /// 滅んだ秦を咸陽に蘇らせる（そこにある城邑を奪うか、新たに都を築く）
@@ -164,12 +158,12 @@ impl World {
             let pl = self.player;
             let (mine, god) = (self.nations[pl].tiles, self.nations[QIN].tiles);
             let text = if pl != QIN && self.nations[pl].alive && mine > god {
-                self.game_over = Some((true, format!("英霊とともに上帝の軍を退けた！ {} の版図 {} は上帝の秦 {} を上回った", self.nations[pl].name, mine, god)));
+                self.game_over = Some((true, tf!("英霊とともに上帝の軍を退けた！ {} の版図 {} は上帝の秦 {} を上回った", "With the heroic spirits you held off the Deity's army! {}'s territory of {} exceeds the Deity's Qin at {}", "与英灵一同击退了上帝之军！{}的版图{}超过了上帝之秦的{}", tx(self.nations[pl].name), mine, god)));
                 return;
             } else if pl == QIN {
-                "上帝の軍が天下を統一した。秦の覇業は上帝のものとなった……".to_string()
+                t!("上帝の軍が天下を統一した。秦の覇業は上帝のものとなった……", "The Deity's army has unified the realm. Qin's conquest now belongs to the Deity...", "上帝之军统一了天下。秦的霸业归于上帝……").to_string()
             } else {
-                format!("{} の版図 {} は上帝の秦 {} に及ばなかった。天命は秦に……", self.nations[pl].name, mine, god)
+                tf!("{} の版図 {} は上帝の秦 {} に及ばなかった。天命は秦に……", "{}'s territory of {} fell short of the Deity's Qin at {}. The Mandate of Heaven passes to Qin...", "{}的版图{}不及上帝之秦的{}。天命归秦……", tx(self.nations[pl].name), mine, god)
             };
             self.game_over = Some((false, text));
             return;
@@ -178,9 +172,9 @@ impl World {
         if p >= 1.0 && self.game_over.is_none() {
             let pl = self.player;
             let text = if pl == QIN {
-                format!("上帝の軍が天下を統一した。秦の覇業は上帝のものとなった……")
+                t!("上帝の軍が天下を統一した。秦の覇業は上帝のものとなった……", "The Deity's army has unified the realm. Qin's conquest now belongs to the Deity...", "上帝之军统一了天下。秦的霸业归于上帝……").to_string()
             } else {
-                format!("上帝の軍が天下を統一した。{} の覇業はここに終わる……", self.nations[pl].name)
+                tf!("上帝の軍が天下を統一した。{} の覇業はここに終わる……", "The Deity's army has unified the realm. The ambitions of {} end here...", "上帝之军统一了天下。{}的霸业就此终结……", tx(self.nations[pl].name))
             };
             self.game_over = Some((false, text));
         }

@@ -47,7 +47,23 @@ const VK_OEM_PLUS: u32 = 0xBB;
 const VK_OEM_MINUS: u32 = 0xBD;
 const VK_OEM_PERIOD: u32 = 0xBE;
 
-const RES_NAMES: [&str; 3] = ["糧", "木", "銅"];
+/// 費用表示用の短い資源名（英語は F/W/B）
+fn res_short(k: usize) -> &'static str {
+    match k {
+        0 => t!("糧", "F", "粮"),
+        1 => t!("木", "W", "木"),
+        _ => t!("銅", "B", "铜"),
+    }
+}
+
+/// 資源の名前（0:糧 1:木 2:銅）
+fn res_name(k: usize) -> &'static str {
+    match k {
+        0 => t!("糧", "Food", "粮"),
+        1 => t!("木", "Wood", "木"),
+        _ => t!("銅", "Bronze", "铜"),
+    }
+}
 const RES_COLORS: [[f32; 4]; 3] = [[0.95, 0.85, 0.35, 1.0], [0.55, 0.85, 0.45, 1.0], [0.95, 0.6, 0.35, 1.0]];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -92,7 +108,6 @@ enum Act {
     /// 和睦の申し入れへの返答（true=受諾）
     PeaceAnswer(bool),
     Start,
-    PickNation(usize),
     Home,
     Restart,
     CloseOverlay,
@@ -113,6 +128,8 @@ enum Act {
     TutQuit,
     Scale(i32),
     Fullscreen,
+    /// 表示言語を切り替える
+    Lang,
     SaveMenu,
     SaveSlot(u8),
     LoadSlot(u8),
@@ -127,7 +144,6 @@ struct Button {
     x1: f32,
     y1: f32,
     label: String,
-    sub: String,
     key: u32,
     enabled: bool,
     act: Act,
@@ -778,7 +794,7 @@ impl Game {
                         let pl = self.world.player;
                         self.world.declare_war(pl, o, true);
                         self.world.war_start[pl][o] -= 12.0;
-                        self.world.propose_peace(o, pl, 8.0, "連合の解散");
+                        self.world.propose_peace(o, pl, 8.0, t!("連合の解散", "the coalition disbanded", "联军解散"));
                     }
                     // 撮影用：民を1人選び、都の近くに田を3つ予約させる（YY_QUEUE=1）
                     if std::env::var("YY_QUEUE").is_ok() {
@@ -1121,7 +1137,7 @@ impl Game {
                 let g = (k - 0x30) as usize;
                 if ctrl {
                     self.groups[g] = self.own_sel();
-                    self.notice(&format!("部隊{}に登録", g));
+                    self.notice(&tf!("部隊{}に登録", "Saved as group {}", "编为第{}队", g));
                 } else {
                     let hs: Vec<Handle> = self.groups[g].iter().copied().filter(|&h| self.world.unit(h).is_some()).collect();
                     if !hs.is_empty() {
@@ -1201,7 +1217,7 @@ impl Game {
                 self.notice(e);
             }
         } else {
-            self.notice(&format!("{}部隊の能力を高めた", ok));
+            self.notice(&tf!("{}部隊の能力を高めた", "Raised the power of {} units", "提升了{}个单位的能力", ok));
         }
     }
 
@@ -1277,12 +1293,12 @@ impl Game {
         }
         if assigned > 0 {
             if built > 0 {
-                self.notice(&format!("未完成の建物へ民{}体を派遣し、計{}体を自動配分した", built, assigned));
+                self.notice(&tf!("未完成の建物へ民{}体を派遣し、計{}体を自動配分した", "Sent {} workers to unfinished buildings; {} assigned in all", "派{}名民前往未完工建筑，共自动分配{}名", built, assigned));
             } else {
-                self.notice(&format!("民{}体を田・森・銅山へ自動配分した", assigned));
+                self.notice(&tf!("民{}体を田・森・銅山へ自動配分した", "Assigned {} workers to fields, forests and mines", "已将{}名民分配到田、森林、铜矿", assigned));
             }
         } else {
-            self.notice("配分できる民や資源が近くにない");
+            self.notice(t!("配分できる民や資源が近くにない", "No workers or resources nearby to assign", "附近没有可分配的民或资源"));
         }
     }
 
@@ -1316,11 +1332,11 @@ impl Game {
         if let Some((_, wh)) = best {
             self.world.order_build(&[wh], bh);
             self.marker = Some((c, 0.6, false));
-            self.notice(&format!("民を{}の建設へ派遣した", bname));
+            self.notice(&tf!("民を{}の建設へ派遣した", "Sent workers to build the {}", "已派民去建造{}", bname));
         } else if self.world.bld_builders(bh) > 0 {
-            self.notice(&format!("すでに民が{}を建設中", bname));
+            self.notice(&tf!("すでに民が{}を建設中", "Workers are already building the {}", "已有民在建造{}", bname));
         } else {
-            self.notice("派遣できる民がいない");
+            self.notice(t!("派遣できる民がいない", "No workers to send", "没有可派遣的民"));
         }
     }
 
@@ -1351,17 +1367,17 @@ impl Game {
             }
         }
         if assigned > 0 {
-            let kind_str = if wood { "森の伐採" } else { "銅山の採掘" };
-            self.notice(&format!("民{}体に{}を命じた", assigned, kind_str));
+            let kind_str = if wood { t!("森の伐採", "cut wood", "伐木") } else { t!("銅山の採掘", "mine bronze", "采铜") };
+            self.notice(&tf!("民{}体に{}を命じた", "Ordered {} workers to {}", "命令{}名民{}", assigned, kind_str));
         } else {
-            self.notice(if wood { "近くに伐採できる森がない" } else { "近くに採掘できる銅山がない" });
+            self.notice(if wood { t!("近くに伐採できる森がない", "No forest nearby to cut", "附近没有可砍伐的森林") } else { t!("近くに採掘できる銅山がない", "No mine nearby", "附近没有可开采的铜矿") });
         }
     }
 
     /// 軍事ユニットに領内防衛・侵入者迎撃・城邑集結を命じる
     fn order_army_defend(&mut self, hs: &[Handle]) {
         if hs.is_empty() {
-            self.notice("軍事ユニットがいない");
+            self.notice(t!("軍事ユニットがいない", "No soldiers", "没有军事单位"));
             return;
         }
         let pl = self.world.player;
@@ -1381,7 +1397,7 @@ impl Game {
         if let Some(p) = intruder {
             self.world.order_move(hs, p, true);
             self.marker = Some((p, 0.6, true));
-            self.notice(&format!("{}部隊に領内侵入者の迎撃を命じた", hs.len()));
+            self.notice(&tf!("{}部隊に領内侵入者の迎撃を命じた", "Ordered {} units to intercept intruders", "命令{}个单位迎击入侵者", hs.len()));
             if let Some(t) = &mut self.tut {
                 t.moved = true;
             }
@@ -1410,7 +1426,7 @@ impl Game {
             cities[0]
         };
         self.marker = Some((rally, 0.6, false));
-        self.notice(&format!("{}部隊に城邑の防衛集結を命じた", hs.len()));
+        self.notice(&tf!("{}部隊に城邑の防衛集結を命じた", "Ordered {} units to gather and defend the cities", "命令{}个单位集结防守城邑", hs.len()));
         if let Some(t) = &mut self.tut {
             t.moved = true;
         }
@@ -1420,7 +1436,7 @@ impl Game {
     fn order_all_army_attack(&mut self) {
         let hs = self.all_military();
         if hs.is_empty() {
-            self.notice("軍事ユニットがいない");
+            self.notice(t!("軍事ユニットがいない", "No soldiers", "没有军事单位"));
             return;
         }
         self.set_sel(hs.clone());
@@ -1450,13 +1466,13 @@ impl Game {
             self.world.order_move(&hs, goal, true);
             self.marker = Some((goal, 0.6, true));
             self.mode = Mode::AttackMove;
-            self.notice(&format!("全軍{}部隊に敵陣への総進撃を命じた（地図クリックで目標変更可）", hs.len()));
+            self.notice(&tf!("全軍{}部隊に敵陣への総進撃を命じた（地図クリックで目標変更可）", "All {} units ordered to advance on the enemy (click the map to change the target)", "全军{}个单位向敌阵总攻（点击地图可改变目标）", hs.len()));
             if let Some(t) = &mut self.tut {
                 t.moved = true;
             }
         } else {
             self.mode = Mode::AttackMove;
-            self.notice(&format!("全軍{}部隊を選択：進軍先を地図上でクリックしてください", hs.len()));
+            self.notice(&tf!("全軍{}部隊を選択：進軍先を地図上でクリックしてください", "All {} units selected: click the map to choose where to march", "已选全军{}个单位：请在地图上点击进军目标", hs.len()));
         }
     }
 
@@ -1606,7 +1622,7 @@ impl Game {
                     self.world.order_attack(&hs, Target::Unit(t));
                     self.marker = Some((p, 0.6, true));
                 } else {
-                    self.notice(&format!("{} とは交戦していない（外交 F2 で宣戦できる）", self.world.nations[tn].name));
+                    self.notice(&tf!("{} とは交戦していない（外交 F2 で宣戦できる）", "Not at war with {} (declare war in Diplomacy, F2)", "未与{}交战（可在外交 F2 中宣战）", crate::lang::tx(self.world.nations[tn].name)));
                     self.world.order_move(&hs, p, false);
                 }
                 return;
@@ -1620,7 +1636,7 @@ impl Game {
                     self.world.order_attack(&hs, Target::Bld(bh));
                     self.marker = Some((p, 0.6, true));
                 } else {
-                    self.notice(&format!("{} とは交戦していない（外交 F2 で宣戦できる）", self.world.nations[bn].name));
+                    self.notice(&tf!("{} とは交戦していない（外交 F2 で宣戦できる）", "Not at war with {} (declare war in Diplomacy, F2)", "未与{}交战（可在外交 F2 中宣战）", crate::lang::tx(self.world.nations[bn].name)));
                 }
                 return;
             }
@@ -1628,7 +1644,7 @@ impl Game {
                 if !workers.is_empty() {
                     self.world.order_build(&workers, bh);
                     self.marker = Some((bc, 0.6, false));
-                    self.notice(&format!("{}の建設へ民{}体を向かわせた", kind.name(), workers.len()));
+                    self.notice(&tf!("{}の建設へ民{}体を向かわせた", "Sent {1} workers to build the {0}", "派{1}名民去建造{0}", kind.name(), workers.len()));
                 } else if self.world.bld_builders(bh) == 0 {
                     self.dispatch_worker_to_build(bh);
                 }
@@ -1721,7 +1737,6 @@ impl Game {
         let pl = self.world.player;
         match a {
             Act::Noop => {}
-            Act::PickNation(i) => self.title_sel = Some(i),
             Act::Start => {
                 if let Some(n) = self.title_sel {
                     self.world.player = n;
@@ -1731,9 +1746,9 @@ impl Game {
                     self.cam = self.world.nations[n].home;
                     self.reset_fog();
                     self.autosave_years = self.world.years;
-                    let name = self.world.nations[n].name;
-                    self.world.push_msg(format!("紀元前770年、周の東遷。あなたは {} の君主となった。", name), [1.0, 0.9, 0.6]);
-                    self.world.push_msg("F1でヘルプ、F2で外交画面を開く".into(), [0.8, 0.8, 0.8]);
+                    let name = crate::lang::tx(self.world.nations[n].name);
+                    self.world.push_msg(tf!("紀元前770年、周の東遷。あなたは {} の君主となった。", "770 BC: Zhou moves its capital east. You are now ruler of {}.", "公元前770年，周室东迁。你成为了{}的君主。", name), [1.0, 0.9, 0.6]);
+                    self.world.push_msg(t!("F1でヘルプ、F2で外交画面を開く", "F1 opens Help, F2 opens Diplomacy", "F1 打开帮助，F2 打开外交画面").into(), [0.8, 0.8, 0.8]);
                 }
             }
             Act::Tutorial => self.start_tutorial(),
@@ -1744,9 +1759,15 @@ impl Game {
                 if self.screen == Screen::Title {
                     self.fit_title_camera();
                 }
-                self.notice(&format!("文字の大きさ ×{:.2}", self.gfx.ui));
+                self.notice(&tf!("文字の大きさ ×{:.2}", "Text size ×{:.2}", "文字大小 ×{:.2}", self.gfx.ui));
             }
             Act::Fullscreen => self.gfx.toggle_fullscreen(),
+            Act::Lang => {
+                let l = crate::lang::lang().next();
+                crate::lang::set_lang(l);
+                crate::platform::save_lang(l);
+                self.gfx.reload_fonts();
+            }
             Act::SaveMenu => {
                 self.show_save = !self.show_save;
                 if self.show_save {
@@ -1759,7 +1780,7 @@ impl Game {
             }
             Act::SaveSlot(s) => self.save_slot(s, false),
             Act::LoadSlot(s) => {
-                self.notice("記録を読み込んでいる…");
+                self.notice(t!("記録を読み込んでいる…", "Loading the save...", "正在读取存档…"));
                 crate::platform::load_slot(s);
             }
             Act::ExportSlot(s) => crate::platform::export_slot(s),
@@ -1794,7 +1815,7 @@ impl Game {
                 let cost = k.cost();
                 let r = self.world.nations[pl].res;
                 if r[0] < cost[0] || r[1] < cost[1] || r[2] < cost[2] {
-                    self.notice("資源が足りない");
+                    self.notice(t!("資源が足りない", "Not enough resources", "资源不足"));
                 } else {
                     self.mode = Mode::Place(k);
                 }
@@ -1832,18 +1853,18 @@ impl Game {
             Act::SelectAllWorkers => {
                 let hs = self.all_workers();
                 if hs.is_empty() {
-                    self.notice("民がいない");
+                    self.notice(t!("民がいない", "No workers", "没有民"));
                 } else {
-                    self.notice(&format!("民全体（{}体）を選択した", hs.len()));
+                    self.notice(&tf!("民全体（{}体）を選択した", "Selected all workers ({})", "已选择全部民（{}名）", hs.len()));
                     self.set_sel(hs);
                 }
             }
             Act::SelectAllMilitary => {
                 let hs = self.all_military();
                 if hs.is_empty() {
-                    self.notice("軍事ユニットがいない");
+                    self.notice(t!("軍事ユニットがいない", "No soldiers", "没有军事单位"));
                 } else {
-                    self.notice(&format!("全軍事ユニット（{}体）を選択した", hs.len()));
+                    self.notice(&tf!("全軍事ユニット（{}体）を選択した", "Selected all soldiers ({})", "已选择全部军事单位（{}个）", hs.len()));
                     self.set_sel(hs);
                 }
             }
@@ -1856,9 +1877,9 @@ impl Game {
                     .map(|i| self.world.uh(i))
                     .collect();
                 if hs.is_empty() {
-                    self.notice(&format!("{}はいない", kind.name(self.world.era)));
+                    self.notice(&tf!("{}はいない", "No {} units", "没有{}", kind.name(self.world.era)));
                 } else {
-                    self.notice(&format!("{}全体（{}体）を選択した", kind.name(self.world.era), hs.len()));
+                    self.notice(&tf!("{}全体（{}体）を選択した", "Selected all {} units ({})", "已选择全部{}（{}个）", kind.name(self.world.era), hs.len()));
                     self.set_sel(hs);
                 }
             }
@@ -1891,7 +1912,7 @@ impl Game {
             Act::AllWorkersUpgrade => {
                 let hs = self.all_workers();
                 if hs.is_empty() {
-                    self.notice("民がいない");
+                    self.notice(t!("民がいない", "No workers", "没有民"));
                 } else {
                     self.upgrade_handles(hs);
                 }
@@ -1910,7 +1931,7 @@ impl Game {
             Act::AllArmyUpgrade => {
                 let hs = self.all_military();
                 if hs.is_empty() {
-                    self.notice("軍事ユニットがいない");
+                    self.notice(t!("軍事ユニットがいない", "No soldiers", "没有军事单位"));
                 } else {
                     self.upgrade_handles(hs);
                 }
@@ -1953,14 +1974,14 @@ impl Game {
             }
             Act::Tax(t) => {
                 self.world.nations[pl].tax = t;
-                self.notice(&format!("税率を{}にした", TAX_NAMES[t as usize]));
+                self.notice(&tf!("税率を{}にした", "Tax set to {}", "税率改为{}", tax_name(t as usize)));
             }
             Act::Buy(k) => match self.world.buy_resource(pl, k) {
-                Ok(()) => self.notice(&format!("市場で{}を{}買った", RES_NAMES[k], MARKET_LOT as i32)),
+                Ok(()) => self.notice(&tf!("市場で{}を{}買った", "Bought {1} {0} at the market", "在市场购入{0}{1}", res_name(k), MARKET_LOT as i32)),
                 Err(e) => self.notice(e),
             },
             Act::Hire(t) => match self.world.hire_mercs(pl, t) {
-                Ok(()) => self.notice(&format!("{}の傭兵を雇った", TRIBES[t].name)),
+                Ok(()) => self.notice(&tf!("{}の傭兵を雇った", "Hired {} mercenaries", "雇佣了{}佣兵", crate::lang::tx(TRIBES[t].name))),
                 Err(e) => self.notice(e),
             },
             Act::ChronPage(d) => {
@@ -2000,7 +2021,7 @@ impl Game {
             Act::War(o) => {
                 if self.world.truce[pl][o] > self.world.years {
                     let r = (self.world.truce[pl][o] - self.world.years).ceil() as i32;
-                    self.notice(&format!("休戦期間中（残り{}年）", r));
+                    self.notice(&tf!("休戦期間中（残り{}年）", "Truce in effect ({} years left)", "休战期内（剩余{}年）", r));
                 } else {
                     self.world.declare_war(pl, o, false);
                 }
@@ -2008,7 +2029,7 @@ impl Game {
             Act::Peace(o) => {
                 let w = &mut self.world;
                 if w.coalition_locked(pl, o) {
-                    self.notice("連合軍の討伐中は和睦できない");
+                    self.notice(t!("連合軍の討伐中は和睦できない", "Cannot make peace while a coalition campaign is on", "联军讨伐期间无法议和"));
                     return;
                 }
                 let dur = w.years - w.war_start[pl][o];
@@ -2016,7 +2037,7 @@ impl Game {
                 if accept {
                     w.make_peace(pl, o, 10.0);
                 } else {
-                    let t = format!("{} は和睦を拒否した", w.nations[o].name);
+                    let t = tf!("{} は和睦を拒否した", "{} refused peace", "{}拒绝议和", crate::lang::tx(w.nations[o].name));
                     self.notice(&t);
                 }
             }
@@ -2050,7 +2071,7 @@ impl Game {
                     })
                     .collect();
                 if idle.is_empty() {
-                    self.notice("待機中の民はいない");
+                    self.notice(t!("待機中の民はいない", "No idle workers", "没有闲置的民"));
                 } else {
                     self.idle_cycle = (self.idle_cycle + 1) % idle.len();
                     let i = idle[self.idle_cycle];
@@ -2640,11 +2661,11 @@ impl Game {
             }
             let divine = self.world.descent.is_some() && b.nation as usize == 2;
             let name = if divine {
-                if cap { "上帝・秦".to_string() } else { "上帝・邑".to_string() }
+                if cap { t!("上帝・秦", "Deity · Qin", "上帝・秦").to_string() } else { t!("上帝・邑", "Deity · Town", "上帝・邑").to_string() }
             } else if cap {
-                n.name.to_string()
+                crate::lang::tx(n.name).to_string()
             } else {
-                format!("{}・邑", n.name)
+                tf!("{}・邑", "{} town", "{}・邑", crate::lang::tx(n.name))
             };
             let col = if divine { [1.0, 0.88, 0.38] } else { n.color };
             labels.push((sx, sy, name, cap, col, divine));
@@ -2746,7 +2767,10 @@ impl Game {
             self.gfx.text_shadow(label, tx0, y0, tw, bh, Font::NormalCenter, tc);
         } else {
             self.gfx.text_shadow(label, tx0 + 2.0, y0 + 2.0, tw + 24.0, bh * 0.52, Font::Normal, tc);
-            self.gfx.text(sub, tx0 + 2.0, y0 + bh * 0.53, tw + 24.0, bh * 0.45, Font::Small, [tc[0] * 0.92, tc[1] * 0.86, tc[2] * 0.68, 1.0]);
+            // 小見出しが入りきらなければ、アイコンの下まで左へ寄せる
+            let sw = self.gfx.measure(sub, Font::Small);
+            let sx = (x1 - 4.0 - sw).clamp(x0 + 4.0, tx0 + 2.0);
+            self.gfx.text(sub, sx, y0 + bh * 0.53, x1 - sx, bh * 0.45, Font::Small, [tc[0] * 0.92, tc[1] * 0.86, tc[2] * 0.68, 1.0]);
         }
         if key >= 0x41 && key <= 0x5A {
             let ks = ((key as u8) as char).to_string();
@@ -2756,19 +2780,19 @@ impl Game {
         if hover && !tip.is_empty() {
             self.notice = None;
         }
-        self.buttons.push(Button { x0, y0, x1, y1, label: label.to_string(), sub: sub.to_string(), key, enabled, act, tip: tip.to_string() });
+        self.buttons.push(Button { x0, y0, x1, y1, label: label.to_string(), key, enabled, act, tip: tip.to_string() });
     }
 
     fn cost_str(c: [f32; 3]) -> String {
         let cnt = c.iter().filter(|&&v| v > 0.0).count();
-        let sep = if cnt >= 3 { "" } else { " " };
+        let sep = if cnt >= 3 && crate::lang::lang() != crate::lang::Lang::En { "" } else { " " };
         let mut s = String::new();
         for k in 0..3 {
             if c[k] > 0.0 {
                 if !s.is_empty() {
                     s.push_str(sep);
                 }
-                s.push_str(&format!("{}{}", RES_NAMES[k], c[k] as i32));
+                s.push_str(&format!("{}{}", res_short(k), c[k] as i32));
             }
         }
         s
@@ -2807,12 +2831,12 @@ impl Game {
         if let Some(crest) = &self.art.title_crest {
             self.gfx.draw_bitmap(crest, px + 20.0, 10.0, w - 20.0, 126.0);
         }
-        self.gfx.text_shadow("春秋戦国", px, 19.0, 380.0, 56.0, Font::Title, [1.0, 0.86, 0.42, 1.0]);
-        self.gfx.text_shadow("— 中華統一への道 —", px, 76.0, 380.0, 28.0, Font::BigCenter, [0.96, 0.90, 0.78, 1.0]);
+        self.gfx.text_shadow(t!("春秋戦国", "Warring States", "春秋战国"), px, 19.0, 380.0, 56.0, Font::Title, [1.0, 0.86, 0.42, 1.0]);
+        self.gfx.text_shadow(t!("— 中華統一への道 —", "— The Road to Unification —", "— 中华统一之路 —"), px, 76.0, 380.0, 28.0, Font::BigCenter, [0.96, 0.90, 0.78, 1.0]);
 
         self.art.draw_inset_box(&self.gfx, px + 18.0, 132.0, w - 18.0, 306.0);
         self.gfx.text(
-            "紀元前770年、周の東遷。数多の諸侯が並び立つ春秋の世から、七雄が争う戦国の世まで、時は全ての国に等しく流れる。\n\n地図上の国都をクリックして、率いる国を選べ。金の印は戦国の七雄（生産力が高い）。",
+            t!("紀元前770年、周の東遷。数多の諸侯が並び立つ春秋の世から、七雄が争う戦国の世まで、時は全ての国に等しく流れる。\n\n地図上の国都をクリックして、率いる国を選べ。金の印は戦国の七雄（生産力が高い）。", "770 BC: the Zhou court moves east. From the Spring and Autumn period of countless lords to the Warring States of seven great powers, time flows equally for every state.\n\nClick a capital on the map to choose the state you will lead. Gold marks are the Seven Powers of the Warring States (high production).", "公元前770年，周室东迁。从诸侯林立的春秋之世，到七雄争霸的战国之世，时间对所有国家一视同仁。\n\n点击地图上的国都，选择你要率领的国家。金色标记为战国七雄（生产力高）。"),
             px + 28.0,
             140.0,
             324.0,
@@ -2830,19 +2854,19 @@ impl Game {
             }
             self.gfx.fill_rect(px + 86.0, 336.0, px + 104.0, 368.0, c4(n.color, 1.0));
             self.gfx.stroke_rect(px + 86.0, 336.0, px + 104.0, 368.0, 1.2, [0.92, 0.78, 0.40, 1.0]);
-            self.gfx.text_shadow(n.name, px + 112.0, 332.0, 230.0, 40.0, Font::Big, [1.0, 0.95, 0.85, 1.0]);
-            self.gfx.text(d.desc, px + 32.0, 382.0, 316.0, 44.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
-            let s = format!("生産力：×{:.2}{}", d.bias, if d.seven { "（戦国七雄）" } else { "" });
+            self.gfx.text_shadow(crate::lang::tx(n.name), px + 112.0, 332.0, 230.0, 40.0, Font::Big, [1.0, 0.95, 0.85, 1.0]);
+            self.gfx.text(crate::lang::tx(d.desc), px + 32.0, 382.0, 316.0, 44.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
+            let s = tf!("生産力：×{:.2}{}", "Production: ×{:.2}{}", "生产力：×{:.2}{}", d.bias, if d.seven { t!("（戦国七雄）", " (Seven Powers)", "（战国七雄）") } else { "" });
             self.gfx.text(&s, px + 32.0, 426.0, 316.0, 20.0, Font::Normal, [0.98, 0.86, 0.48, 1.0]);
             let cities = self.world.blds.iter().filter(|b| b.alive && b.nation as usize == i && b.kind.city()).count();
-            let s = format!("初期城邑：{}　君主家：{}", cities, INITIAL_HOUSE[i]);
+            let s = tf!("初期城邑：{}　君主家：{}", "Cities: {}   House: {}", "初始城邑：{}　君主家：{}", cities, crate::lang::tx(INITIAL_HOUSE[i]));
             self.gfx.text(&s, px + 32.0, 448.0, 316.0, 20.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
             let diff = if d.seven {
-                "難易度：易"
+                t!("難易度：易", "Difficulty: Easy", "难度：易")
             } else if d.bias >= 0.95 {
-                "難易度：中"
+                t!("難易度：中", "Difficulty: Normal", "难度：中")
             } else {
-                "難易度：難"
+                t!("難易度：難", "Difficulty: Hard", "难度：难")
             };
             self.gfx.text(diff, px + 32.0, 470.0, 316.0, 20.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
             // 史実に基づく国の特徴（説明はツールチップ）
@@ -2850,49 +2874,51 @@ impl Game {
             if !trs.is_empty() {
                 let names: Vec<String> = trs
                     .iter()
-                    .map(|t| if t.from_bc < START_BC as i32 { format!("{}（前{}年〜）", t.name, t.from_bc) } else if t.to_bc > END_BC as i32 { format!("{}（〜前{}年）", t.name, t.to_bc) } else { t.name.to_string() })
+                    .map(|t| if t.from_bc < START_BC as i32 { tf!("{}（前{}年〜）", "{} (from {} BC)", "{}（前{}年起）", crate::lang::tx(t.name), t.from_bc) } else if t.to_bc > END_BC as i32 { tf!("{}（〜前{}年）", "{} (until {} BC)", "{}（至前{}年）", crate::lang::tx(t.name), t.to_bc) } else { crate::lang::tx(t.name).to_string() })
                     .collect();
-                let s = format!("特徴：{}", names.join("・"));
+                let s = tf!("特徴：{}", "Traits: {}", "特点：{}", names.join(sep()));
                 self.gfx.text(&s, px + 32.0, 492.0, 316.0, 22.0, Font::Normal, [0.70, 0.92, 1.0, 1.0]);
-                let tip: Vec<String> = trs.iter().map(|t| format!("【{}】{}", t.name, t.desc)).collect();
+                let tip: Vec<String> = trs.iter().map(|t| format!("【{}】{}", crate::lang::tx(t.name), crate::lang::tx(t.desc))).collect();
                 self.buttons.push(Button {
                     x0: px + 32.0,
                     y0: 490.0,
                     x1: w - 30.0,
                     y1: 514.0,
                     label: String::new(),
-                    sub: String::new(),
                     key: 0,
                     enabled: true,
                     act: Act::Noop,
                     tip: tip.join("\n"),
                 });
             }
-            self.add_button(px + 50.0, 530.0, w - 50.0, 576.0, "この国で覇業を開始", "", 0, true, Act::Start, "");
+            self.add_button(px + 50.0, 530.0, w - 50.0, 576.0, t!("この国で覇業を開始", "Begin your conquest", "以此国开始霸业"), "", 0, true, Act::Start, "");
         }
         let ty = (h - 128.0).max(592.0);
         // 記録から続ける（空きがあれば独立した行、狭ければ英霊モードの行と並べる）
         let cy = ty - 108.0;
         let heroic_x0 = if self.title_sel.is_some() && cy < 590.0 {
             let mid = px + 24.0 + (w - 48.0 - px) * 0.5;
-            self.add_button(mid + 4.0, ty - 54.0, w - 24.0, ty - 12.0, "続きから F5", "", 0, true, Act::SaveMenu, "記録した対局を再開する");
+            self.add_button(mid + 4.0, ty - 54.0, w - 24.0, ty - 12.0, t!("続きから F5", "Continue F5", "继续 F5"), "", 0, true, Act::SaveMenu, t!("記録した対局を再開する", "Resume a saved game", "继续已保存的对局"));
             Some(mid - 4.0)
         } else {
-            self.add_button(px + 24.0, cy, w - 24.0, cy + 42.0, "続きから（記録を読み込む） F5", "", 0, true, Act::SaveMenu, "記録した対局を再開する。書き出したファイルからも読み込める");
+            self.add_button(px + 24.0, cy, w - 24.0, cy + 42.0, t!("続きから（記録を読み込む） F5", "Continue (load a save) F5", "继续（读取存档） F5"), "", 0, true, Act::SaveMenu, t!("記録した対局を再開する。書き出したファイルからも読み込める", "Resume a saved game. Exported files can be loaded too", "继续已保存的对局。也可读取导出的文件"));
             None
         };
-        let hl = if self.heroic_opt { "英霊モード：オン" } else { "英霊モード：オフ" };
+        let hl = if self.heroic_opt { t!("英霊モード：オン", "Heroic Spirits: On", "英灵模式：开") } else { t!("英霊モード：オフ", "Heroic Spirits: Off", "英灵模式：关") };
         let hx1 = heroic_x0.unwrap_or(w - 24.0);
-        self.add_button(px + 24.0, ty - 54.0, hx1, ty - 12.0, hl, "", 0, true, Act::ToggleHeroic, "三皇五帝から春秋戦国の英霊を、民を生贄にして時代と国を超えて呼べる（一国に一体）。英霊は上帝の軍を傷つけられ、上帝降臨から10年後の版図が上帝の秦より広ければ勝利。他国も召喚する");
+        self.add_button(px + 24.0, ty - 54.0, hx1, ty - 12.0, hl, "", 0, true, Act::ToggleHeroic, t!("三皇五帝から春秋戦国の英霊を、民を生贄にして時代と国を超えて呼べる（一国に一体）。英霊は上帝の軍を傷つけられ、上帝降臨から10年後の版図が上帝の秦より広ければ勝利。他国も召喚する", "Sacrifice workers to summon heroic spirits from the Three Sovereigns to the Warring States, across eras and states (one per state). Spirits can harm the Deity's army; if your territory is larger than the Deity's Qin 10 years after the Descent, you win. Other states summon too", "以民为祭品，跨越时代与国界召唤自三皇五帝至春秋战国的英灵（每国一位）。英灵能伤及上帝之军，上帝降临10年后若版图大于上帝之秦即获胜。他国也会召唤"));
         if self.heroic_opt {
             self.gfx.stroke_round(px + 24.0, ty - 54.0, hx1, ty - 12.0, 3.0, 2.0, [1.0, 0.85, 0.4, 1.0]);
         }
-        self.add_button(px + 24.0, ty, w - 24.0, ty + 48.0, "はじめての方は：チュートリアル", "", 0, true, Act::Tutorial, "晋の君主として、操作と遊び方を1段ずつ学ぶ");
+        self.add_button(px + 24.0, ty, w - 24.0, ty + 48.0, t!("はじめての方は：チュートリアル", "New here? Tutorial", "初次游玩：教程"), "", 0, true, Act::Tutorial, t!("晋の君主として、操作と遊び方を1段ずつ学ぶ", "Learn the controls and the game step by step as ruler of Jin", "以晋国君主身份逐步学习操作与玩法"));
         let ty = ty + 60.0;
-        self.add_button(px + 24.0, ty, px + 104.0, ty + 40.0, "文字 −", "", 0, true, Act::Scale(-1), "文字と画面部品を小さくする（Ctrl＋−）");
-        self.add_button(px + 110.0, ty, px + 190.0, ty + 40.0, "文字 ＋", "", 0, true, Act::Scale(1), "文字と画面部品を大きくする（Ctrl＋＋）");
-        let fl = if self.gfx.is_fullscreen() { "ウィンドウ F11" } else { "全画面 F11" };
-        self.add_button(px + 196.0, ty, w - 24.0, ty + 40.0, fl, "", 0, true, Act::Fullscreen, "全画面表示を切り替える");
+        self.add_button(px + 24.0, ty, px + 70.0, ty + 40.0, "A−", "", 0, true, Act::Scale(-1), t!("文字と画面部品を小さくする（Ctrl＋−）", "Make text and interface smaller (Ctrl+−)", "缩小文字与界面（Ctrl＋−）"));
+        self.add_button(px + 74.0, ty, px + 120.0, ty + 40.0, "A＋", "", 0, true, Act::Scale(1), t!("文字と画面部品を大きくする（Ctrl＋＋）", "Make text and interface larger (Ctrl++)", "放大文字与界面（Ctrl＋＋）"));
+        let fl = if self.gfx.is_fullscreen() { t!("ウィンドウ F11", "Window F11", "窗口 F11") } else { t!("全画面 F11", "Fullscreen F11", "全屏 F11") };
+        // 表示言語（いまの言語の名前を出し、押すと次の言語へ）
+        let ll = format!("{} ▸", crate::lang::lang().native());
+        self.add_button(px + 124.0, ty, px + 222.0, ty + 40.0, &ll, "", 0, true, Act::Lang, "表示言語を切り替える / Change language / 切换语言（日本語 → English → 中文）");
+        self.add_button(px + 226.0, ty, w - 24.0, ty + 40.0, fl, "", 0, true, Act::Fullscreen, t!("全画面表示を切り替える", "Toggle fullscreen", "切换全屏显示"));
         // タイトル画面のツールチップ
         let (mx, my) = self.mouse;
         let tip = self.buttons.iter().find(|b| mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1 && !b.tip.is_empty()).map(|b| b.tip.clone());
@@ -2926,7 +2952,7 @@ impl Game {
             let rate = if k == 0 { inc[k] - upkeep } else { inc[k] };
             let s = format!("{}", res[k] as i32);
             self.gfx.text_shadow(&s, x + 31.0, 7.0, 72.0, 22.0, Font::Big, RES_COLORS[k]);
-            let rs = format!("{:+.1}/秒", rate);
+            let rs = tf!("{:+.1}/秒", "{:+.1}/s", "{:+.1}/秒", rate);
             let rc = if rate < 0.0 { [1.0, 0.42, 0.32, 1.0] } else { [0.80, 0.78, 0.70, 1.0] };
             self.gfx.text(&rs, x + 88.0, 11.0, 56.0, 18.0, Font::Small, rc);
             x += 148.0;
@@ -2947,11 +2973,10 @@ impl Game {
             x1: x + 88.0,
             y1: 32.0,
             label: String::new(),
-            sub: String::new(),
             key: 0,
             enabled: true,
             act: Act::SelectAllWorkers,
-            tip: "民（生産ユニット）全体を選択する".to_string(),
+            tip: t!("民（生産ユニット）全体を選択する", "Select all workers", "选择全部民（生产单位）").to_string(),
         });
         x += 94.0;
 
@@ -2969,18 +2994,17 @@ impl Game {
             x1: x + 88.0,
             y1: 32.0,
             label: String::new(),
-            sub: String::new(),
             key: 0,
             enabled: true,
             act: Act::SelectAllMilitary,
-            tip: "軍事ユニット全体（全軍）を選択する".to_string(),
+            tip: t!("軍事ユニット全体（全軍）を選択する", "Select all soldiers", "选择全部军事单位（全军）").to_string(),
         });
         x += 96.0;
 
         if let Some(ic) = &self.art.res_icons[ResIcon::Upkeep as usize] {
             self.gfx.draw_bitmap(ic, x, 5.0, x + 26.0, 31.0);
         }
-        let s = format!("-{:.1}/秒", upkeep);
+        let s = tf!("-{:.1}/秒", "-{:.1}/s", "-{:.1}/秒", upkeep);
         self.gfx.text_shadow(&s, x + 28.0, 8.0, 88.0, 22.0, Font::Normal, [0.98, 0.68, 0.52, 1.0]);
         x += 112.0;
         // 銭（商人からの税収）
@@ -2990,7 +3014,7 @@ impl Game {
         self.gfx.fill_rect(x + 9.0, 14.0, x + 17.0, 22.0, [0.30, 0.22, 0.10, 1.0]);
         let s = format!("{}", coin as i32);
         self.gfx.text_shadow(&s, x + 28.0, 7.0, 64.0, 22.0, Font::Big, [1.0, 0.86, 0.45, 1.0]);
-        let s = format!("{:+.1}/秒", coin_inc);
+        let s = tf!("{:+.1}/秒", "{:+.1}/s", "{:+.1}/秒", coin_inc);
         self.gfx.text(&s, x + 80.0, 11.0, 56.0, 18.0, Font::Small, [0.80, 0.78, 0.70, 1.0]);
         self.buttons.push(Button {
             x0: x,
@@ -2998,31 +3022,30 @@ impl Game {
             x1: x + 136.0,
             y1: 32.0,
             label: String::new(),
-            sub: String::new(),
             key: 0,
             enabled: true,
             act: Act::Market,
-            tip: "銭：領内を通る商人・西域の商人・部族の隊商からの税収。交易画面（F4）で資源の購入や傭兵の雇用に使う".to_string(),
+            tip: t!("銭：領内を通る商人・西域の商人・部族の隊商からの税収。交易画面（F4）で資源の購入や傭兵の雇用に使う", "Coin: taxes from merchants, Western merchants and tribal caravans passing through your land. Spend it on the Trade screen (F4) to buy resources or hire mercenaries", "钱：途经领内的商人、西域商人、部族商队所缴的税。可在贸易画面（F4）购买资源或雇佣佣兵").to_string(),
         });
 
         // 速度・メニュー
         let bx = w - 424.0;
-        let ex = (bx - 248.0).max(x + 166.0);
-        // 幅が足りなければ短く書く
-        let s = if bx - ex >= 240.0 {
-            let era = if self.world.era == Era::Spring { "春秋時代" } else { "戦国時代" };
-            format!("紀元前 {}年　{}", self.world.year_bc(), era)
-        } else if bx - ex >= 170.0 {
-            let era = if self.world.era == Era::Spring { "春秋" } else { "戦国" };
-            format!("前{}年 {}", self.world.year_bc(), era)
-        } else {
-            format!("前{}年", self.world.year_bc())
-        };
+        let ex = (bx - 248.0).max(x + 150.0);
+        // 幅に収まるいちばん詳しい書き方を選ぶ（言語で文字幅が違うので測って決める）
+        let yb = self.world.year_bc();
+        let spring = self.world.era == Era::Spring;
+        let long = tf!("紀元前 {}年　{}", "{} BC  {}", "公元前 {}年　{}", yb, if spring { t!("春秋時代", "Spring & Autumn", "春秋时代") } else { t!("戦国時代", "Warring States", "战国时代") });
+        let mid = tf!("前{}年 {}", "{} BC {}", "前{}年 {}", yb, if spring { t!("春秋", "S&A", "春秋") } else { t!("戦国", "WS", "战国") });
+        let short = tf!("前{}年", "{} BC", "前{}年", yb);
+        let room = bx - ex - 6.0;
+        let (s, ef) = [(long, Font::Big), (mid, Font::Big), (short.clone(), Font::Big), (short.clone(), Font::Normal), (short, Font::Small)]
+            .into_iter()
+            .find(|(s, f)| self.gfx.measure(s, *f) <= room)
+            .unwrap_or((tf!("前{}", "{}BC", "前{}", yb), Font::Small));
         if let Some(ic) = &self.art.res_icons[ResIcon::Era as usize] {
-            self.gfx.draw_bitmap(ic, ex - 26.0, 6.0, ex - 2.0, 30.0);
+            self.gfx.draw_bitmap(ic, ex - 22.0, 8.0, ex - 2.0, 28.0);
         }
-        let ef = if bx - ex >= 170.0 { Font::Big } else { Font::Normal };
-        self.gfx.text_shadow(&s, ex, if bx - ex >= 170.0 { 7.0 } else { 9.0 }, (bx - ex - 4.0).max(60.0), 24.0, ef, [1.0, 0.9, 0.6, 1.0]);
+        self.gfx.text_shadow(&s, ex, if ef == Font::Big { 7.0 } else { 9.0 }, (bx - ex - 4.0).max(60.0), 24.0, ef, [1.0, 0.9, 0.6, 1.0]);
         let paused = self.paused;
         let sp = self.speed;
         self.add_button(bx, 5.0, bx + 36.0, 31.0, if paused { "▶" } else { "❚❚" }, "", 0, true, Act::Speed(0), "");
@@ -3034,18 +3057,18 @@ impl Game {
                 self.gfx.stroke_round(x0, 5.0, x0 + 33.0, 31.0, 3.0, 2.0, [1.0, 0.9, 0.4, 1.0]);
             }
         }
-        self.add_button(w - 242.0, 5.0, w - 166.0, 31.0, "交易 F4", "", 0, true, Act::Market, "商人の税・市場・山岳民と遊牧民・傭兵・西域");
-        self.add_button(w - 162.0, 5.0, w - 84.0, 31.0, "外交 F2", "", 0, true, Act::Diplo, "");
-        self.add_button(w - 80.0, 5.0, w - 4.0, 31.0, "ヘルプ F1", "", 0, true, Act::Help, "");
+        self.add_button(w - 242.0, 5.0, w - 166.0, 31.0, t!("交易 F4", "Trade F4", "贸易 F4"), "", 0, true, Act::Market, t!("商人の税・市場・山岳民と遊牧民・傭兵・西域", "Merchant taxes, market, hill and steppe peoples, mercenaries, the Western Regions", "商人税、市场、山地与游牧民、佣兵、西域"));
+        self.add_button(w - 162.0, 5.0, w - 84.0, 31.0, t!("外交 F2", "Diplo F2", "外交 F2"), "", 0, true, Act::Diplo, "");
+        self.add_button(w - 80.0, 5.0, w - 4.0, 31.0, t!("ヘルプ F1", "Help F1", "帮助 F1"), "", 0, true, Act::Help, "");
         // 記録（上部バーに余地が無いので、その下の右端に置く）
-        self.add_button(w - 80.0, TOP_H + 4.0, w - 4.0, TOP_H + 30.0, "記録 F5", "", 0, true, Act::SaveMenu, "記録（セーブ・ロード）。10年ごとに自動でも記録する");
+        self.add_button(w - 80.0, TOP_H + 4.0, w - 4.0, TOP_H + 30.0, t!("記録 F5", "Save F5", "存档 F5"), "", 0, true, Act::SaveMenu, t!("記録（セーブ・ロード）。10年ごとに自動でも記録する", "Save and load. The game also saves automatically every 10 years", "保存与读取。每10年也会自动保存"));
         if paused {
-            self.gfx.text_shadow("一時停止中（Space）", w / 2.0 - 120.0, TOP_H + 60.0, 240.0, 30.0, Font::BigCenter, [1.0, 1.0, 0.8, 1.0]);
+            self.gfx.text_shadow(t!("一時停止中（Space）", "Paused (Space)", "已暂停（Space）"), w / 2.0 - 120.0, TOP_H + 60.0, 240.0, 30.0, Font::BigCenter, [1.0, 1.0, 0.8, 1.0]);
         } else if let Some(left) = self.world.descent_left() {
-            let s = format!("上帝降臨：上帝の軍が天下を統一するまで あと{}年", left.ceil() as i32);
+            let s = tf!("上帝降臨：上帝の軍が天下を統一するまで あと{}年", "Descent of the Deity: {} years until the Deity's army unifies the realm", "上帝降临：距上帝之军统一天下还有{}年", left.ceil() as i32);
             self.gfx.text_shadow(&s, w / 2.0 - 320.0, TOP_H + 60.0, 640.0, 30.0, Font::BigCenter, [1.0, 0.75, 0.35, 1.0]);
         } else if self.cmd_hold() {
-            self.gfx.text_shadow("指揮中（時は止まっている。命令を出すか選択を解くと進む）", w / 2.0 - 320.0, TOP_H + 60.0, 640.0, 30.0, Font::BigCenter, [0.8, 0.95, 1.0, 1.0]);
+            self.gfx.text_shadow(t!("指揮中（時は止まっている。命令を出すか選択を解くと進む）", "Commanding: time stopped (give an order or deselect)", "指挥中（时间已停止。下达命令或取消选择后继续）"), w / 2.0 - 320.0, TOP_H + 60.0, 640.0, 30.0, Font::BigCenter, [0.8, 0.95, 1.0, 1.0]);
         }
 
         // ---- 連合情報
@@ -3056,15 +3079,15 @@ impl Game {
             .coalitions
             .iter()
             .map(|c| {
-                let k = if c.kind == CoalKind::Hegemon { "覇者の呼びかけ" } else { "合従軍" };
+                let k = if c.kind == CoalKind::Hegemon { t!("覇者の呼びかけ", "Hegemon's Call", "霸主号召") } else { t!("合従軍", "Grand Alliance", "合纵军") };
                 let me = if c.target == pl {
-                    "（標的：自国！）"
+                    t!("（標的：自国！）", " (target: YOU!)", "（目标：我国！）")
                 } else if c.members.contains(&pl) {
-                    "（参加中）"
+                    t!("（参加中）", " (you joined)", "（参与中）")
                 } else {
                     ""
                 };
-                format!("【{}】{}討伐 盟主{} {}国 残り{}年{}", k, self.world.nations[c.target].name, self.world.nations[c.leader].name, c.members.len(), (c.end - years).ceil() as i32, me)
+                tf!("【{}】{}討伐 盟主{} {}国 残り{}年{}", "[{}] vs {}, led by {}, {} states, {} yrs{}", "【{}】讨伐{} 盟主{} {}国 剩余{}年{}", k, crate::lang::tx(self.world.nations[c.target].name), crate::lang::tx(self.world.nations[c.leader].name), c.members.len(), (c.end - years).ceil() as i32, me)
             })
             .collect();
         for s in coal {
@@ -3077,7 +3100,7 @@ impl Game {
         if self.world.era == Era::Spring {
             let ag = self.world.nations[pl].aggression;
             if ag > 20.0 {
-                let s = format!("諸侯の警戒 {:.0}/100", ag);
+                let s = tf!("諸侯の警戒 {:.0}/100", "Lords' alarm {:.0}/100", "诸侯警戒 {:.0}/100", ag);
                 let col = if ag > 75.0 { [1.0, 0.4, 0.3, 1.0] } else { [0.95, 0.8, 0.5, 1.0] };
                 self.gfx.text_shadow(&s, w - 220.0, cy + 2.0, 214.0, 20.0, Font::Normal, col);
             }
@@ -3089,8 +3112,9 @@ impl Game {
         let msgs: Vec<(String, [f32; 3], f32)> = self.world.msgs.iter().rev().take(7).filter(|m| now - m.time < 25.0).map(|m| (m.text.clone(), m.color, now - m.time)).collect();
         for (t, c, age) in msgs.into_iter().rev() {
             let a = if age > 20.0 { (25.0 - age) / 5.0 } else { 1.0 };
-            self.gfx.text_shadow(&t, 10.0, y, w * 0.55, 20.0, Font::Normal, [c[0], c[1], c[2], a]);
-            y += 20.0;
+            let mh = self.gfx.measure_h(&t, Font::Normal, w * 0.55).clamp(20.0, 40.0);
+            self.gfx.text_shadow(&t, 10.0, y, w * 0.55, mh, Font::Normal, [c[0], c[1], c[2], a]);
+            y += mh;
         }
 
         // ---- イベントバナー
@@ -3163,8 +3187,8 @@ impl Game {
         self.render_info(ix + 12.0, py + 12.0, iw - 24.0);
         // 英霊モード：民を選んでいれば英霊召喚ボタン
         if self.world.heroic && self.own_sel().iter().any(|&h| self.world.unit(h).map_or(false, |u| u.kind == UnitKind::Worker)) {
-            let tip = if self.world.hero_of(pl).is_some() { "英霊は一国に一体だけ。いまの英霊が倒れれば、また呼べる" } else { "選んだ民を生贄に捧げ、三皇五帝から春秋戦国の英霊を呼ぶ（英霊の能力＝生贄の能力の合計×1.1〜3.0）" };
-            self.add_button(ix + iw - 176.0, h - 58.0, ix + iw - 14.0, h - 14.0, "英霊召喚", "民を生贄に", 'H' as u32, self.world.hero_of(pl).is_none(), Act::Summon, tip);
+            let tip = if self.world.hero_of(pl).is_some() { t!("英霊は一国に一体だけ。いまの英霊が倒れれば、また呼べる", "Only one spirit per state. If yours falls, you can summon again", "每国只能有一位英灵。现有英灵倒下后可再次召唤") } else { t!("選んだ民を生贄に捧げ、三皇五帝から春秋戦国の英霊を呼ぶ（英霊の能力＝生贄の能力の合計×1.1〜3.0）", "Sacrifice the selected workers to summon a spirit from the Three Sovereigns to the Warring States (spirit power = total sacrificed power × 1.1–3.0)", "献祭所选的民，召唤自三皇五帝至春秋战国的英灵（英灵能力＝祭品能力总和×1.1〜3.0）") };
+            self.add_button(ix + iw - 176.0, h - 58.0, ix + iw - 14.0, h - 14.0, t!("英霊召喚", "Summon Spirit", "召唤英灵"), t!("民を生贄に", "sacrifice workers", "献祭民"), 'H' as u32, self.world.hero_of(pl).is_none(), Act::Summon, tip);
         }
 
         // 右側のコマンド欄ボックス
@@ -3210,17 +3234,17 @@ impl Game {
 
     fn order_text(&self, u: &Unit) -> &'static str {
         match u.order {
-            Order::Idle => "待機中",
-            Order::Move(_) => "移動中",
-            Order::AttackMove(_) => "進軍中",
-            Order::Attack(_) => "交戦中",
+            Order::Idle => t!("待機中", "Idle", "待命"),
+            Order::Move(_) => t!("移動中", "Moving", "移动中"),
+            Order::AttackMove(_) => t!("進軍中", "Advancing", "进军中"),
+            Order::Attack(_) => t!("交戦中", "Fighting", "交战中"),
             Order::Gather { src, phase } => match (src.res(), phase) {
-                (_, 2) => "運搬中",
-                (0, _) => "農耕中",
-                (1, _) => "伐採中",
-                _ => "採掘中",
+                (_, 2) => t!("運搬中", "Carrying", "搬运中"),
+                (0, _) => t!("農耕中", "Farming", "耕作中"),
+                (1, _) => t!("伐採中", "Cutting wood", "伐木中"),
+                _ => t!("採掘中", "Mining", "采矿中"),
             },
-            Order::Build(_) => "建設中",
+            Order::Build(_) => t!("建設中", "Building", "建造中"),
         }
     }
 
@@ -3260,39 +3284,41 @@ impl Game {
             let tw = (wd - 102.0).max(100.0);
             let title = if (u.hero as usize) < HEROES.len() {
                 let d = &HEROES[u.hero as usize];
-                format!("英霊・{}（{}）【{}】", d.name, d.era, n.name)
+                tf!("英霊・{}（{}）【{}】", "Spirit: {} ({}) [{}]", "英灵・{}（{}）【{}】", crate::lang::tx(d.name), crate::lang::tx(d.era), crate::lang::tx(n.name))
             } else if u.divine {
-                format!("上帝の軍・{}　【{}】", u.kind.name(era), n.name)
+                tf!("上帝の軍・{}　【{}】", "Deity's {}  [{}]", "上帝之军・{}　【{}】", u.kind.name(era), crate::lang::tx(n.name))
             } else if (u.tribe as usize) < TRIBES.len() {
                 let td = &TRIBES[u.tribe as usize];
                 let ue = if td.nomad { Era::Warring } else { era };
                 if u.merc_until > 0.0 {
-                    format!("{}の傭兵（{}）【{}】残り{}年", td.name, u.kind.name(ue), n.name, (u.merc_until - self.world.years).ceil() as i32)
+                    tf!("{}の傭兵（{}）【{}】残り{}年", "{} mercenary ({}) [{}] {} yrs left", "{}佣兵（{}）【{}】剩余{}年", crate::lang::tx(td.name), u.kind.name(ue), crate::lang::tx(n.name), (u.merc_until - self.world.years).ceil() as i32)
                 } else {
-                    format!("{}の{}", td.name, u.kind.name(ue))
+                    tf!("{}の{}", "{} {}", "{}{}", crate::lang::tx(td.name), u.kind.name(ue))
                 }
             } else {
-                format!("{}　【{}】", u.kind.name(era), n.name)
+                format!("{}　【{}】", u.kind.name(era), crate::lang::tx(n.name))
             };
-            let lines = format!(
+            let lines = tf!(
                 "兵力 {:.0}/{:.0}　　能力 {:.1}（時代上限 {:.1}）\n状態：{}{}",
+                "HP {:.0}/{:.0}    Power {:.1} (era limit {:.1})\nStatus: {}{}",
+                "兵力 {:.0}/{:.0}　　能力 {:.1}（时代上限 {:.1}）\n状态：{}{}",
                 u.hp.max(0.0),
                 u.max_hp(),
                 u.power,
                 cap,
                 self.order_text(u),
-                if u.carry > 0.5 { format!("（{} {:.0}）", RES_NAMES[u.carry_kind], u.carry) } else { String::new() }
+                if u.carry > 0.5 { tf!("（{} {:.0}）", " ({} {:.0})", "（{} {:.0}）", res_name(u.carry_kind), u.carry) } else { String::new() }
             );
             let desc = if (u.hero as usize) < HEROES.len() {
-                HEROES[u.hero as usize].desc
+                crate::lang::tx(HEROES[u.hero as usize].desc)
             } else if u.divine {
-                "天より降りた上帝の不死身の神兵。通常の兵では傷つけられず、英霊のみがこれを討てる。"
+                t!("天より降りた上帝の不死身の神兵。通常の兵では傷つけられず、英霊のみがこれを討てる。", "An immortal divine soldier sent down by the Supreme Deity. Ordinary troops cannot hurt it; only heroic spirits can.", "从天而降的上帝不死神兵。普通士兵无法伤其分毫，唯有英灵能将其击败。")
             } else {
                 match u.kind {
-                    UnitKind::Worker => "生産ユニット。田・森・銅山で資源を集め、建物を建てる。",
-                    UnitKind::Infantry => "戈を持つ歩兵。戦車・騎兵に強い。建物攻撃に優れる。",
-                    UnitKind::Archer => "遠距離から射撃する。歩兵に強いが戦車・騎兵に弱い。",
-                    UnitKind::Chariot => "高速の突撃兵。弩兵と民に強いが、戈兵に弱い。",
+                    UnitKind::Worker => t!("生産ユニット。田・森・銅山で資源を集め、建物を建てる。", "Worker. Gathers resources at fields, forests and mines, and builds.", "生产单位。在田、森林、铜矿采集资源并建造建筑。"),
+                    UnitKind::Infantry => t!("戈を持つ歩兵。戦車・騎兵に強い。建物攻撃に優れる。", "Infantry with dagger-axes. Strong against chariots and cavalry, good at attacking buildings.", "手持戈的步兵。克制战车与骑兵，擅长攻击建筑。"),
+                    UnitKind::Archer => t!("遠距離から射撃する。歩兵に強いが戦車・騎兵に弱い。", "Shoots from range. Strong against infantry, weak against chariots and cavalry.", "远程射击。克制步兵，惧战车与骑兵。"),
+                    UnitKind::Chariot => t!("高速の突撃兵。弩兵と民に強いが、戈兵に弱い。", "Fast shock troops. Strong against crossbowmen and workers, weak against halberdiers.", "高速突击兵。克制弩兵与民，惧戈兵。"),
                 }
             };
             self.gfx.text_shadow(&title, tx, y + 2.0, tw, 28.0, Font::Big, tc);
@@ -3310,7 +3336,7 @@ impl Game {
                 hp += u.hp;
                 mhp += u.max_hp();
             }
-            let title = format!("{} 部隊を編制選択中", self.sel.len());
+            let title = tf!("{} 部隊を編制選択中", "{} units selected", "已选择{}个单位", self.sel.len());
             self.gfx.text_shadow(&title, x, y, wd, 26.0, Font::Big, tc);
             let kinds = [UnitKind::Worker, UnitKind::Infantry, UnitKind::Archer, UnitKind::Chariot];
             let (mx, my) = self.mouse;
@@ -3335,16 +3361,15 @@ impl Game {
                         x1: bx1,
                         y1: by1,
                         label: String::new(),
-                        sub: String::new(),
                         key: 0,
                         enabled: true,
                         act: Act::FilterKind(kinds[k]),
-                        tip: format!("{}（{}体）：クリックでこの兵種のみに絞り込む", kinds[k].name(era), cnt[k]),
+                        tip: tf!("{}（{}体）：クリックでこの兵種のみに絞り込む", "{} ({}): click to keep only this type", "{}（{}个）：点击只保留该兵种", kinds[k].name(era), cnt[k]),
                     });
                     ix += 94.0;
                 }
             }
-            let s = format!("総能力 {:.1}（平均 {:.2}）　　総兵力 {:.0}/{:.0}", pw, pw / self.sel.len() as f32, hp, mhp);
+            let s = tf!("総能力 {:.1}（平均 {:.2}）　　総兵力 {:.0}/{:.0}", "Total power {:.1} (avg {:.2})    Total HP {:.0}/{:.0}", "总能力 {:.1}（平均 {:.2}）　　总兵力 {:.0}/{:.0}", pw, pw / self.sel.len() as f32, hp, mhp);
             self.gfx.text(&s, x, y + 76.0, wd, 30.0, Font::Normal, tc);
             let f = (hp / mhp.max(1.0)).clamp(0.0, 1.0);
             let bw = wd.min(320.0);
@@ -3376,28 +3401,28 @@ impl Game {
             let tx = x + 84.0;
             let tw = (wd - 84.0).max(100.0);
             let title = if is_divine_city {
-                format!("上帝の{}　【{}】", b.kind.name(), n.name)
+                tf!("上帝の{}　【{}】", "Deity's {}  [{}]", "上帝之{}　【{}】", b.kind.name(), crate::lang::tx(n.name))
             } else {
-                format!("{}　【{}】", b.kind.name(), n.name)
+                format!("{}　【{}】", b.kind.name(), crate::lang::tx(n.name))
             };
-            let mut s = format!("耐久 {:.0}/{:.0}", b.hp.max(0.0), b.kind.max_hp());
+            let mut s = tf!("耐久 {:.0}/{:.0}", "HP {:.0}/{:.0}", "耐久 {:.0}/{:.0}", b.hp.max(0.0), b.kind.max_hp());
             if !b.done() {
                 let builders = self.world.bld_builders(bh);
                 if builders > 0 {
-                    s.push_str(&format!("　（建設中 {:.0}%・作業民{}体）", b.progress * 100.0, builders));
+                    s.push_str(&tf!("　（建設中 {:.0}%・作業民{}体）", "  (building {:.0}%, {} workers)", "　（建造中 {:.0}%・施工民{}名）", b.progress * 100.0, builders));
                 } else {
-                    s.push_str(&format!("　（建設中断 {:.0}%・右の「建設を再開」で民を派遣）", b.progress * 100.0));
+                    s.push_str(&tf!("　（建設中断 {:.0}%・右の「建設を再開」で民を派遣）", "  (paused at {:.0}%: press Resume building to send workers)", "　（建造中断 {:.0}%・点右侧“继续建造”派民）", b.progress * 100.0));
                 }
             }
             let desc = if is_divine_city {
-                "天より降臨した上帝の神威が宿る神聖な城邑。上帝の軍が湧き出でる拠点であり、全ての邑を落とせば上帝は退く。"
+                t!("天より降臨した上帝の神威が宿る神聖な城邑。上帝の軍が湧き出でる拠点であり、全ての邑を落とせば上帝は退く。", "A holy city filled with the might of the Supreme Deity. The Deity's army pours out from here; take all of them and the Deity withdraws.", "上帝神威所寄的神圣城邑，上帝之军由此涌出。攻下全部城邑，上帝便会退去。")
             } else {
                 match b.kind {
-                    BKind::Capital => "国の中心。民を訓練し、資源の集積地となる。失うと遷都し、全ての城邑を失うと滅亡する。",
-                    BKind::Town => "領土を広げ、民を訓練し、資源の集積地となる。城邑が増えるほど人口上限が上がる。",
-                    BKind::Barracks => "戈兵・弩兵・戦車（騎兵）を訓練する。",
-                    BKind::Farm => "民が耕すと糧を産む。枯れることはない。",
-                    BKind::Fort => "近づく敵兵を射る（射程9）。数は城邑の数で決まる上限まで。",
+                    BKind::Capital => t!("国の中心。民を訓練し、資源の集積地となる。失うと遷都し、全ての城邑を失うと滅亡する。", "Heart of the state. Trains workers and stores resources. If it falls the capital moves; lose every city and the state falls.", "国家中心。训练民，存放资源。失去则迁都，失去全部城邑则灭亡。"),
+                    BKind::Town => t!("領土を広げ、民を訓練し、資源の集積地となる。城邑が増えるほど人口上限が上がる。", "Expands territory, trains workers and stores resources. More cities raise your population limits.", "扩张领土，训练民，存放资源。城邑越多人口上限越高。"),
+                    BKind::Barracks => t!("戈兵・弩兵・戦車（騎兵）を訓練する。", "Trains halberdiers, crossbowmen and chariots (cavalry).", "训练戈兵、弩兵、战车（骑兵）。"),
+                    BKind::Farm => t!("民が耕すと糧を産む。枯れることはない。", "Produces food when a worker farms it. Never runs out.", "民耕作后产粮，永不枯竭。"),
+                    BKind::Fort => t!("近づく敵兵を射る（射程9）。数は城邑の数で決まる上限まで。", "Shoots enemy soldiers that come near (range 9). How many you may build depends on your number of cities.", "射击靠近的敌兵（射程9）。数量上限取决于城邑数。"),
                 }
             };
             let queue: Vec<(UnitKind, f32)> = b.queue.iter().enumerate().map(|(i, k)| (*k, if i == 0 { b.queue_t / k.train_time() } else { 0.0 })).collect();
@@ -3433,17 +3458,25 @@ impl Game {
             }
             let tx = x + 84.0;
             let tw = (wd - 84.0).max(100.0);
-            let title = format!("{} の国勢（右のボタンで民全体・全軍へ命令可）", n.name);
-            let wars: Vec<&str> = (0..NATIONS.len()).filter(|&o| self.world.at_war(pl, o)).map(|o| self.world.nations[o].name).collect();
-            let s = format!(
+            let title = tf!("{} の国勢（右のボタンで民全体・全軍へ命令可）", "State of {} (the buttons on the right command all workers or all soldiers)", "{}国势（右侧按钮可命令全体民或全军）", crate::lang::tx(n.name));
+            let wars: Vec<&str> = (0..NATIONS.len()).filter(|&o| self.world.at_war(pl, o)).map(|o| crate::lang::tx(self.world.nations[o].name)).collect();
+            let s = tf!(
                 "城邑 {}　領土 {}　国力 {:.0}　生産 ×{:.2}　時代 ×{:.2}　上限 {:.1}\n交戦中：{}",
+                "Cities {}  Land {}  Strength {:.0}  Production ×{:.2}  Era ×{:.2}  Limit {:.1}\nAt war with: {}",
+                "城邑 {}　领土 {}　国力 {:.0}　生产 ×{:.2}　时代 ×{:.2}　上限 {:.1}\n交战中：{}",
                 n.cities,
                 n.tiles,
                 n.strength,
                 n.bias,
                 self.world.era_mult(),
                 cap,
-                if wars.is_empty() { "なし".to_string() } else { wars.join("・") }
+                if wars.is_empty() {
+                    t!("なし", "none", "无").to_string()
+                } else if wars.len() > 8 {
+                    format!("{}{}", wars[..8].join(sep()), tf!("ほか{}国", " +{} more", "等{}国", wars.len() - 8))
+                } else {
+                    wars.join(sep())
+                }
             );
             self.gfx.text_shadow(&title, tx, y, tw, 26.0, Font::Big, tc);
             self.gfx.text(&s, tx, y + 28.0, tw, 48.0, Font::Normal, tc);
@@ -3477,11 +3510,10 @@ impl Game {
                     x1: bx1,
                     y1: by1,
                     label: String::new(),
-                    sub: String::new(),
                     key: 0,
                     enabled: cnt[k] > 0,
                     act: Act::SelectKind(kinds[k]),
-                    tip: format!("{}全体（{}体）を選択する", kinds[k].name(era), cnt[k]),
+                    tip: tf!("{}全体（{}体）を選択する", "Select all {} ({})", "选择全部{}（{}个）", kinds[k].name(era), cnt[k]),
                 });
                 ix += 84.0;
             }
@@ -3509,9 +3541,9 @@ impl Game {
             let mut i = 0;
             if any_worker {
                 for (k, key, tip) in [
-                    (BKind::Farm, 'Q', "田：民が耕すと糧を産む。自国領内に建設。"),
-                    (BKind::Barracks, 'W', "兵営：軍事ユニットを訓練する。自国領内に建設。"),
-                    (BKind::Town, 'E', "邑：領土を広げ人口上限を上げる。他の城邑から9以上離し、自国城邑から26以内。"),
+                    (BKind::Farm, 'Q', t!("田：民が耕すと糧を産む。自国領内に建設。", "Field: produces food when farmed. Build inside your territory.", "田：民耕作后产粮。建于己方领土内。")),
+                    (BKind::Barracks, 'W', t!("兵営：軍事ユニットを訓練する。自国領内に建設。", "Barracks: trains soldiers. Build inside your territory.", "兵营：训练军事单位。建于己方领土内。")),
+                    (BKind::Town, 'E', t!("邑：領土を広げ人口上限を上げる。他の城邑から9以上離し、自国城邑から26以内。", "Town: expands territory and raises population limits. At least 9 from any city and within 26 of one of yours.", "邑：扩张领土、提高人口上限。须距其他城邑9以上，距己方城邑26以内。")),
                 ] {
                     let (x0, y0, x1, y1) = pos(i);
                     let c = k.cost();
@@ -3523,19 +3555,19 @@ impl Game {
             let u0 = self.world.unit(own[0]).unwrap();
             let u0_kind = u0.kind;
             let up_cost = self.world.upgrade_cost(u0);
-            let label = if any_mil && !any_worker { "訓練" } else if any_worker && !any_mil { "教化" } else { "鍛錬" };
+            let label = if any_mil && !any_worker { t!("訓練", "Train", "训练") } else if any_worker && !any_mil { t!("教化", "Educate", "教化") } else { t!("鍛錬", "Train", "锻炼") };
             let (x0, y0, x1, y1) = pos(i);
-            self.add_button(x0, y0, x1, y1, label, &Self::cost_str(up_cost), 'T' as u32, true, Act::Upgrade, "選択部隊の能力を +0.5 高める（自国領内のみ）。兵は戦闘力と兵力、民は採集量が上がる。費用は現在の能力に比例し、糧・木・銅のうち蓄えの多いものから優先して払う。");
+            self.add_button(x0, y0, x1, y1, label, &Self::cost_str(up_cost), 'T' as u32, true, Act::Upgrade, t!("選択部隊の能力を +0.5 高める（自国領内のみ）。兵は戦闘力と兵力、民は採集量が上がる。費用は現在の能力に比例し、糧・木・銅のうち蓄えの多いものから優先して払う。", "Raises the selected units' power by +0.5 (inside your territory only). Soldiers gain strength and HP, workers gather more. The cost grows with power and is paid mostly from whichever of food, wood and bronze you have most of.", "使所选单位能力+0.5（仅限己方领土内）。士兵提升战斗力与兵力，民提升采集量。费用与当前能力成正比，优先从粮、木、铜中储量较多者支付。"));
             i += 1;
             let (x0, y0, x1, y1) = pos(i);
             let (cl, ct) = if any_mil && !any_worker {
-                ("解散→民", "兵を解散して民にする（能力は2/3に目減り）。")
+                (t!("解散→民", "Disband", "解散→民"), t!("兵を解散して民にする（能力は2/3に目減り）。", "Disband soldiers into workers (power drops to 2/3).", "将士兵解散为民（能力降为2/3）。"))
             } else if any_worker && !any_mil {
-                ("徴兵→戈兵", "民を徴兵して戈兵にする（能力は2/3に目減り）。")
+                (t!("徴兵→戈兵", "Draft", "征兵→戈兵"), t!("民を徴兵して戈兵にする（能力は2/3に目減り）。", "Draft workers as halberdiers (power drops to 2/3).", "征民为戈兵（能力降为2/3）。"))
             } else {
-                ("兵⇔民", "兵は民に、民は戈兵に転換する（能力は2/3に目減り）。")
+                (t!("兵⇔民", "Convert", "兵⇔民"), t!("兵は民に、民は戈兵に転換する（能力は2/3に目減り）。", "Soldiers become workers and workers become halberdiers (power drops to 2/3).", "士兵转为民，民转为戈兵（能力降为2/3）。"))
             };
-            self.add_button(x0, y0, x1, y1, cl, "能力×2/3", 'C' as u32, true, Act::Convert, ct);
+            self.add_button(x0, y0, x1, y1, cl, t!("能力×2/3", "power ×2/3", "能力×2/3"), 'C' as u32, true, Act::Convert, ct);
             i += 1;
             let (x0, y0, x1, y1) = pos(i);
             if any_worker && !any_mil {
@@ -3543,57 +3575,59 @@ impl Game {
                 let n = &self.world.nations[pl];
                 let (nf, cap) = (self.world.fort_count(pl), n.fort_cap());
                 let c = BKind::Fort.cost();
-                let tip = format!(
+                let tip = tf!(
                     "要塞：近づく敵兵を射る（射程{:.0}）。自国領内に建設。数は城邑2つごとに1つ、最大6まで（いま{}／{}）。余った資源の使い道に。",
+                    "Fort: shoots enemy soldiers that come near (range {:.0}). Build inside your territory. One per two cities, six at most (now {}/{}). A good use for surplus resources.",
+                    "要塞：射击靠近的敌兵（射程{:.0}）。建于己方领土内。每两座城邑可建一座，最多6座（现有{}／{}）。可消耗多余资源。",
                     FORT_RANGE, nf, cap
                 );
-                let lbl = format!("要塞 {}/{}", nf, cap);
+                let lbl = tf!("要塞 {}/{}", "Fort {}/{}", "要塞 {}/{}", nf, cap);
                 self.add_button(x0, y0, x1, y1, &lbl, &Self::cost_str(c), 'R' as u32, afford(c) && nf < cap, Act::Place(BKind::Fort), &tip);
             } else {
-                self.add_button(x0, y0, x1, y1, "停止", "", 'S' as u32, true, Act::Stop, "選択中の部隊を停止して待機させる。");
+                self.add_button(x0, y0, x1, y1, t!("停止", "Stop", "停止"), "", 'S' as u32, true, Act::Stop, t!("選択中の部隊を停止して待機させる。", "Stop the selected units and make them wait.", "让所选单位停止待命。"));
             }
             i += 1;
 
             if any_worker && !any_mil {
                 // 下段：選択民および民全体への一括命令
                 let (x0, y0, x1, y1) = pos(6);
-                self.add_button(x0, y0, x1, y1, "自動採集", "田・森・銅へ", 'F' as u32, true, Act::WorkersAuto, "選択中の民を、空いている田・森・銅山へバランスよく自動配分する。");
+                self.add_button(x0, y0, x1, y1, t!("自動採集", "Auto gather", "自动采集"), t!("田・森・銅へ", "auto-assign", "田・森・铜"), 'F' as u32, true, Act::WorkersAuto, t!("選択中の民を、空いている田・森・銅山へバランスよく自動配分する。", "Spread the selected workers evenly over free fields, forests and mines.", "将所选的民均衡分配到空闲的田、森林、铜矿。"));
                 let all_sel = own.len() >= n_workers as usize;
                 let (x0, y0, x1, y1) = pos(7);
                 if all_sel {
-                    self.add_button(x0, y0, x1, y1, "全民・伐採", "最寄りの森へ", 'G' as u32, true, Act::AllWorkersWood, "すべての民（建設中を除く）に最寄りの森の伐採を命じる。");
+                    self.add_button(x0, y0, x1, y1, t!("全民・伐採", "All: wood", "全民・伐木"), t!("最寄りの森へ", "nearest forest", "去最近的森林"), 'G' as u32, true, Act::AllWorkersWood, t!("すべての民（建設中を除く）に最寄りの森の伐採を命じる。", "Order every worker (except builders) to cut the nearest forest.", "命令全部民（建造中除外）砍伐最近的森林。"));
                 } else {
-                    self.add_button(x0, y0, x1, y1, "全民を選択", &format!("全{}体", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, "自国のすべての民を選択する。");
+                    self.add_button(x0, y0, x1, y1, t!("全民を選択", "All workers", "选择全民"), &tf!("全{}体", "all {}", "全{}名", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, t!("自国のすべての民を選択する。", "Select all your workers.", "选择我国全部民。"));
                 }
                 let (x0, y0, x1, y1) = pos(8);
                 if all_sel {
-                    self.add_button(x0, y0, x1, y1, "全民・採掘", "最寄りの銅山", 'V' as u32, true, Act::AllWorkersMine, "すべての民（建設中を除く）に最寄りの銅山の採掘を命じる。");
+                    self.add_button(x0, y0, x1, y1, t!("全民・採掘", "All: bronze", "全民・采矿"), t!("最寄りの銅山", "nearest mine", "最近的铜矿"), 'V' as u32, true, Act::AllWorkersMine, t!("すべての民（建設中を除く）に最寄りの銅山の採掘を命じる。", "Order every worker (except builders) to mine the nearest mine.", "命令全部民（建造中除外）开采最近的铜矿。"));
                 } else {
-                    self.add_button(x0, y0, x1, y1, "全民・自動", "民全体を配分", 'V' as u32, n_workers > 0, Act::AllWorkersAuto, "自国のすべての民（建設中を除く）を田・森・銅山へ自動でバランス配分する。");
+                    self.add_button(x0, y0, x1, y1, t!("全民・自動", "All: auto", "全民・自动"), t!("民全体を配分", "assign everyone", "分配全部民"), 'V' as u32, n_workers > 0, Act::AllWorkersAuto, t!("自国のすべての民（建設中を除く）を田・森・銅山へ自動でバランス配分する。", "Spread all your workers (except builders) evenly over fields, forests and mines.", "将我国全部民（建造中除外）均衡分配到田、森林、铜矿。"));
                 }
             } else if any_mil && !any_worker {
                 let (x0, y0, x1, y1) = pos(i);
-                self.add_button(x0, y0, x1, y1, "進軍", "攻撃移動", 'A' as u32, true, Act::AttackMove, "クリックした地点へ、途中の敵と戦いながら進む。");
+                self.add_button(x0, y0, x1, y1, t!("進軍", "Attack-move", "进军"), t!("攻撃移動", "fight on the way", "攻击移动"), 'A' as u32, true, Act::AttackMove, t!("クリックした地点へ、途中の敵と戦いながら進む。", "March to the clicked point, fighting enemies on the way.", "向点击的地点进军，沿途与敌交战。"));
                 i += 1;
                 let (x0, y0, x1, y1) = pos(i);
-                self.add_button(x0, y0, x1, y1, "防衛・帰還", "領内迎撃・集結", 'D' as u32, true, Act::ArmyDefend, "領内の侵入者を迎え撃ち、平時は最寄りの自国城邑へ帰還・防衛配置する。");
+                self.add_button(x0, y0, x1, y1, t!("防衛・帰還", "Defend", "防卫・归还"), t!("領内迎撃・集結", "guard cities", "领内迎击・集结"), 'D' as u32, true, Act::ArmyDefend, t!("領内の侵入者を迎え撃ち、平時は最寄りの自国城邑へ帰還・防衛配置する。", "Intercept intruders in your land; in peacetime return to the nearest city and guard it.", "迎击领内入侵者，平时返回最近的己方城邑防守。"));
                 i += 1;
                 let (x0, y0, x1, y1) = pos(i);
-                self.add_button(x0, y0, x1, y1, "同兵種選択", u0_kind.name(era), 'F' as u32, true, Act::SelectKind(u0_kind), "自国の同じ兵種のユニットをすべて選択する。");
+                self.add_button(x0, y0, x1, y1, t!("同兵種選択", "Same type", "选择同兵种"), u0_kind.name(era), 'F' as u32, true, Act::SelectKind(u0_kind), t!("自国の同じ兵種のユニットをすべて選択する。", "Select all your units of the same type.", "选择我国所有同兵种单位。"));
                 // 下段：全軍（軍事ユニット全体）への命令
                 let (x0, y0, x1, y1) = pos(6);
-                self.add_button(x0, y0, x1, y1, "全軍を選択", &format!("全{}体", n_soldiers), 'G' as u32, n_soldiers > 0, Act::SelectAllMilitary, "自国のすべての軍事ユニットを選択する。");
+                self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_soldiers), 'G' as u32, n_soldiers > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
                 let (x0, y0, x1, y1) = pos(7);
-                self.add_button(x0, y0, x1, y1, "全軍・進撃", "全軍で敵陣へ", 'Q' as u32, n_soldiers > 0, Act::AllArmyAttack, "全軍事ユニットを選択し、交戦国の城邑・敵部隊へ一斉進撃（または地図クリックで進軍先指定）する。");
+                self.add_button(x0, y0, x1, y1, t!("全軍・進撃", "All: attack", "全军・进击"), t!("全軍で敵陣へ", "whole army", "全军攻敌"), 'Q' as u32, n_soldiers > 0, Act::AllArmyAttack, t!("全軍事ユニットを選択し、交戦国の城邑・敵部隊へ一斉進撃（または地図クリックで進軍先指定）する。", "Select every soldier and advance on enemy cities and armies (or click the map to choose where).", "选择全部军事单位，向交战国城邑、敌军全面进击（或点击地图指定目标）。"));
                 let (x0, y0, x1, y1) = pos(8);
-                self.add_button(x0, y0, x1, y1, "全軍・防衛", "全軍で防衛", 'W' as u32, n_soldiers > 0, Act::AllArmyDefend, "全軍事ユニットに領内侵入者の迎撃および城邑への防衛帰還を命じる。");
+                self.add_button(x0, y0, x1, y1, t!("全軍・防衛", "All: defend", "全军・防卫"), t!("全軍で防衛", "whole army", "全军防守"), 'W' as u32, n_soldiers > 0, Act::AllArmyDefend, t!("全軍事ユニットに領内侵入者の迎撃および城邑への防衛帰還を命じる。", "Order every soldier to intercept intruders and return to defend the cities.", "命令全部军事单位迎击入侵者并返回城邑防守。"));
             } else {
                 let (x0, y0, x1, y1) = pos(i);
-                self.add_button(x0, y0, x1, y1, "進軍", "攻撃移動", 'A' as u32, true, Act::AttackMove, "クリックした地点へ、途中の敵と戦いながら進む。");
+                self.add_button(x0, y0, x1, y1, t!("進軍", "Attack-move", "进军"), t!("攻撃移動", "fight on the way", "攻击移动"), 'A' as u32, true, Act::AttackMove, t!("クリックした地点へ、途中の敵と戦いながら進む。", "March to the clicked point, fighting enemies on the way.", "向点击的地点进军，沿途与敌交战。"));
                 let (x0, y0, x1, y1) = pos(7);
-                self.add_button(x0, y0, x1, y1, "全民を選択", &format!("全{}体", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, "自国のすべての民を選択する。");
+                self.add_button(x0, y0, x1, y1, t!("全民を選択", "All workers", "选择全民"), &tf!("全{}体", "all {}", "全{}名", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, t!("自国のすべての民を選択する。", "Select all your workers.", "选择我国全部民。"));
                 let (x0, y0, x1, y1) = pos(8);
-                self.add_button(x0, y0, x1, y1, "全軍を選択", &format!("全{}体", n_soldiers), 'V' as u32, n_soldiers > 0, Act::SelectAllMilitary, "自国のすべての軍事ユニットを選択する。");
+                self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_soldiers), 'V' as u32, n_soldiers > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
             }
         } else if let Some(bh) = self.sel_b {
             let b = self.world.bld(bh).unwrap();
@@ -3604,18 +3638,18 @@ impl Game {
             let mut i = 0;
             if done {
                 let list: Vec<(UnitKind, char, &str)> = match kind {
-                    BKind::Capital | BKind::Town => vec![(UnitKind::Worker, 'Q', "民：資源を集め、建物を建てる。")],
+                    BKind::Capital | BKind::Town => vec![(UnitKind::Worker, 'Q', t!("民：資源を集め、建物を建てる。", "Worker: gathers resources and builds.", "民：采集资源、建造建筑。"))],
                     BKind::Barracks => vec![
-                        (UnitKind::Infantry, 'Q', "戈兵：戦車・騎兵に強い歩兵。"),
-                        (UnitKind::Archer, 'W', "弩兵：遠距離攻撃。歩兵に強い。"),
-                        (UnitKind::Chariot, 'E', if era == Era::Spring { "戦車：高速。弩兵に強い。" } else { "騎兵：高速。弩兵に強い。" }),
+                        (UnitKind::Infantry, 'Q', t!("戈兵：戦車・騎兵に強い歩兵。", "Halberdier: infantry strong against chariots and cavalry.", "戈兵：克制战车、骑兵的步兵。")),
+                        (UnitKind::Archer, 'W', t!("弩兵：遠距離攻撃。歩兵に強い。", "Crossbowman: ranged attack, strong against infantry.", "弩兵：远程攻击，克制步兵。")),
+                        (UnitKind::Chariot, 'E', if era == Era::Spring { t!("戦車：高速。弩兵に強い。", "Chariot: fast, strong against crossbowmen.", "战车：高速，克制弩兵。") } else { t!("騎兵：高速。弩兵に強い。", "Cavalry: fast, strong against crossbowmen.", "骑兵：高速，克制弩兵。") }),
                     ],
                     BKind::Farm | BKind::Fort => vec![],
                 };
                 for (k, key, tip) in list {
                     let (x0, y0, x1, y1) = pos(i);
                     let c = self.world.train_cost(pl, k);
-                    let tip = format!("{}\n訓練時間 {:.0}秒　維持費 {}", tip, k.train_time(), if k.military() { "糧0.07/秒×能力" } else { "なし" });
+                    let tip = tf!("{}\n訓練時間 {:.0}秒　維持費 {}", "{}\nTraining time {:.0}s   Upkeep {}", "{}\n训练时间 {:.0}秒　维持费 {}", tip, k.train_time(), if k.military() { t!("糧0.07/秒×能力", "0.07 food/s × power", "粮0.07/秒×能力") } else { t!("なし", "none", "无") });
                     self.add_button(x0, y0, x1, y1, k.name(era), &Self::cost_str(c), key as u32, afford(c), Act::Train(k), &tip);
                     i += 1;
                 }
@@ -3626,40 +3660,40 @@ impl Game {
                     y0,
                     x1,
                     y1,
-                    "建設を再開",
-                    "民を派遣",
+                    t!("建設を再開", "Resume building", "继续建造"),
+                    t!("民を派遣", "send workers", "派遣民"),
                     'Q' as u32,
                     n_workers > 0,
                     Act::ResumeBuild,
-                    "近くの民をこの建物の建設へ派遣し、中断した建設を再開（または作業人数を追加）する（Q）",
+                    t!("近くの民をこの建物の建設へ派遣し、中断した建設を再開（または作業人数を追加）する（Q）", "Send nearby workers to build this, resuming a paused build or adding hands (Q)", "派附近的民来建造此建筑，继续中断的工程或增派人手（Q）"),
                 );
             }
             if !kind.city() || !done {
                 let (x0, y0, x1, y1) = pos(8);
-                self.add_button(x0, y0, x1, y1, "取り壊す", "", 0, true, Act::Demolish, "この建物を取り壊す（Delete）");
+                self.add_button(x0, y0, x1, y1, t!("取り壊す", "Demolish", "拆除"), "", 0, true, Act::Demolish, t!("この建物を取り壊す（Delete）", "Demolish this building (Delete)", "拆除此建筑（Delete）"));
             }
         } else {
             // 未選択時：民全体・軍事ユニット全体に対する全体命令パネル
             let (x0, y0, x1, y1) = pos(0);
-            self.add_button(x0, y0, x1, y1, "全民・自動", "田・森・銅へ", 'Q' as u32, n_workers > 0, Act::AllWorkersAuto, "自国のすべての民（建設中を除く）を、空いている田・近くの森・銅山へバランスよく自動配分する。");
+            self.add_button(x0, y0, x1, y1, t!("全民・自動", "All: auto", "全民・自动"), t!("田・森・銅へ", "auto-assign", "田・森・铜"), 'Q' as u32, n_workers > 0, Act::AllWorkersAuto, t!("自国のすべての民（建設中を除く）を、空いている田・近くの森・銅山へバランスよく自動配分する。", "Spread all your workers (except builders) evenly over free fields and nearby forests and mines.", "将我国全部民（建造中除外）均衡分配到空闲的田、附近的森林与铜矿。"));
             let (x0, y0, x1, y1) = pos(1);
-            self.add_button(x0, y0, x1, y1, "全民・伐採", "最寄りの森へ", 'W' as u32, n_workers > 0, Act::AllWorkersWood, "自国のすべての民（建設中を除く）に、最寄りの森の伐採を命じる。");
+            self.add_button(x0, y0, x1, y1, t!("全民・伐採", "All: wood", "全民・伐木"), t!("最寄りの森へ", "nearest forest", "去最近的森林"), 'W' as u32, n_workers > 0, Act::AllWorkersWood, t!("自国のすべての民（建設中を除く）に、最寄りの森の伐採を命じる。", "Order all your workers (except builders) to cut the nearest forest.", "命令我国全部民（建造中除外）砍伐最近的森林。"));
             let (x0, y0, x1, y1) = pos(2);
-            self.add_button(x0, y0, x1, y1, "全民・採掘", "最寄りの銅山", 'E' as u32, n_workers > 0, Act::AllWorkersMine, "自国のすべての民（建設中を除く）に、最寄りの銅山の採掘を命じる。");
+            self.add_button(x0, y0, x1, y1, t!("全民・採掘", "All: bronze", "全民・采矿"), t!("最寄りの銅山", "nearest mine", "最近的铜矿"), 'E' as u32, n_workers > 0, Act::AllWorkersMine, t!("自国のすべての民（建設中を除く）に、最寄りの銅山の採掘を命じる。", "Order all your workers (except builders) to mine the nearest mine.", "命令我国全部民（建造中除外）开采最近的铜矿。"));
 
             let (x0, y0, x1, y1) = pos(3);
-            self.add_button(x0, y0, x1, y1, "全民・教化", "能力+0.5", 'T' as u32, n_workers > 0, Act::AllWorkersUpgrade, "自国領内の民を、能力の低い順に資源が続く限り一斉に教化する。");
+            self.add_button(x0, y0, x1, y1, t!("全民・教化", "All: educate", "全民・教化"), t!("能力+0.5", "power +0.5", "能力+0.5"), 'T' as u32, n_workers > 0, Act::AllWorkersUpgrade, t!("自国領内の民を、能力の低い順に資源が続く限り一斉に教化する。", "Educate the workers in your territory, weakest first, as far as resources last.", "按能力由低到高，在资源允许范围内一并教化己方领土内的民。"));
             let (x0, y0, x1, y1) = pos(4);
-            self.add_button(x0, y0, x1, y1, "全民を選択", &format!("全{}体", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, "自国のすべての民を選択する（建設や一斉移動を行えます）。");
+            self.add_button(x0, y0, x1, y1, t!("全民を選択", "All workers", "选择全民"), &tf!("全{}体", "all {}", "全{}名", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, t!("自国のすべての民を選択する（建設や一斉移動を行えます）。", "Select all your workers (to build or move them together).", "选择我国全部民（可进行建造或统一移动）。"));
             let (x0, y0, x1, y1) = pos(5);
-            self.add_button(x0, y0, x1, y1, "全軍を選択", &format!("全{}体", n_soldiers), 'V' as u32, n_soldiers > 0, Act::SelectAllMilitary, "自国のすべての軍事ユニットを選択する。");
+            self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_soldiers), 'V' as u32, n_soldiers > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
 
             let (x0, y0, x1, y1) = pos(6);
-            self.add_button(x0, y0, x1, y1, "全軍・進撃", "敵城・目標へ", 'A' as u32, n_soldiers > 0, Act::AllArmyAttack, "全軍事ユニットを選択し、交戦国の最寄り城邑・敵部隊へ総進撃（または地図クリックで進軍先指定）する。");
+            self.add_button(x0, y0, x1, y1, t!("全軍・進撃", "All: attack", "全军・进击"), t!("敵城・目標へ", "enemy cities", "敌城・目标"), 'A' as u32, n_soldiers > 0, Act::AllArmyAttack, t!("全軍事ユニットを選択し、交戦国の最寄り城邑・敵部隊へ総進撃（または地図クリックで進軍先指定）する。", "Select every soldier and advance on the nearest enemy city and armies (or click the map to choose where).", "选择全部军事单位，向交战国最近的城邑、敌军总攻（或点击地图指定目标）。"));
             let (x0, y0, x1, y1) = pos(7);
-            self.add_button(x0, y0, x1, y1, "全軍・防衛", "領内迎撃・帰還", 'D' as u32, n_soldiers > 0, Act::AllArmyDefend, "全軍事ユニットに、領内の侵入者の迎撃または自国城邑への防衛帰還を命じる。");
+            self.add_button(x0, y0, x1, y1, t!("全軍・防衛", "All: defend", "全军・防卫"), t!("領内迎撃・帰還", "guard cities", "领内迎击・归还"), 'D' as u32, n_soldiers > 0, Act::AllArmyDefend, t!("全軍事ユニットに、領内の侵入者の迎撃または自国城邑への防衛帰還を命じる。", "Order every soldier to intercept intruders or return to defend your cities.", "命令全部军事单位迎击入侵者或返回己方城邑防守。"));
             let (x0, y0, x1, y1) = pos(8);
-            self.add_button(x0, y0, x1, y1, "全軍・訓練", "能力+0.5", 'R' as u32, n_soldiers > 0, Act::AllArmyUpgrade, "自国領内の軍事ユニットを、能力の低い順に資源が続く限り一斉に訓練する。");
+            self.add_button(x0, y0, x1, y1, t!("全軍・訓練", "All: train", "全军・训练"), t!("能力+0.5", "power +0.5", "能力+0.5"), 'R' as u32, n_soldiers > 0, Act::AllArmyUpgrade, t!("自国領内の軍事ユニットを、能力の低い順に資源が続く限り一斉に訓練する。", "Train the soldiers in your territory, weakest first, as far as resources last.", "按能力由低到高，在资源允许范围内一并训练己方领土内的军事单位。"));
         }
     }
 
@@ -3676,12 +3710,12 @@ impl Game {
         if let Some(ic) = &self.art.cmd_icons[CmdIcon::Diplo as usize] {
             self.gfx.draw_bitmap(ic, x0 + 16.0, y0 + 8.0, x0 + 48.0, y0 + 40.0);
         }
-        self.gfx.text_shadow("諸侯外交", x0 + 56.0, y0 + 10.0, 200.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
+        self.gfx.text_shadow(t!("諸侯外交", "Diplomacy", "诸侯外交"), x0 + 56.0, y0 + 10.0, 200.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
         let my = self.world.nations[pl].strength;
-        let s = format!("自国の国力 {:.0}　（国力は兵の能力・城邑・民・領土から算出）", my);
+        let s = tf!("自国の国力 {:.0}　（国力は兵の能力・城邑・民・領土から算出）", "Our strength {:.0}  (from soldiers' power, cities, workers and land)", "我国国力 {:.0}　（国力由兵力、城邑、民、领土计算）", my);
         self.gfx.text(&s, x0 + 160.0, y0 + 16.0, pw - 370.0, 24.0, Font::Normal, [0.85, 0.82, 0.75, 1.0]);
-        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, "閉じる", "", 0, true, Act::CloseOverlay, "");
-        self.add_button(x0 + pw - 196.0, y0 + 10.0, x0 + pw - 98.0, y0 + 40.0, "史記 F3", "", 0, true, Act::Chron, "英雄・諸子百家・政治指導者、反乱・簒奪の記録と各国の君主家");
+        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, t!("閉じる", "Close", "关闭"), "", 0, true, Act::CloseOverlay, "");
+        self.add_button(x0 + pw - 196.0, y0 + 10.0, x0 + pw - 98.0, y0 + 40.0, t!("史記 F3", "Annals F3", "史记 F3"), "", 0, true, Act::Chron, t!("英雄・諸子百家・政治指導者、反乱・簒奪の記録と各国の君主家", "Records of heroes, philosophers, statesmen, revolts and usurpations, and each state's ruling house", "英雄、诸子百家、政治家、叛乱与篡位的记录及各国君主家"));
         self.art.draw_inset_box(&self.gfx, x0 + 10.0, y0 + 48.0, x0 + pw - 10.0, y0 + ph - 10.0);
         let home = self.world.nations[pl].home;
         let mut list: Vec<usize> = (0..NATIONS.len()).filter(|&i| i != pl && self.world.nations[i].alive).collect();
@@ -3707,31 +3741,31 @@ impl Game {
                 self.gfx.fill_rect(rx, ry, rx + colw - 8.0, ry + rowh, [1.0, 1.0, 1.0, 0.04]);
             }
             self.gfx.fill_rect(rx + 4.0, ry + 5.0, rx + 18.0, ry + 19.0, c4(n.color, 1.0));
-            let name = format!("{}{}", n.name, if NATIONS[o].seven { "★" } else { "" });
-            self.gfx.text(&name, rx + 24.0, ry + 3.0, 80.0, 20.0, Font::Normal, [0.95, 0.92, 0.85, 1.0]);
-            let st = format!("国力{:.0} 城{} 距離{:.0}", n.strength, n.cities, n.home.dist(home));
-            self.gfx.text(&st, rx + 90.0, ry + 5.0, 170.0, 20.0, Font::Small, [0.75, 0.72, 0.66, 1.0]);
+            let name = format!("{}{}", crate::lang::tx(n.name), if NATIONS[o].seven { "★" } else { "" });
+            self.gfx.text(&name, rx + 24.0, ry + 3.0, 100.0, 20.0, Font::Normal, [0.95, 0.92, 0.85, 1.0]);
+            let st = tf!("国力{:.0} 城{} 距離{:.0}", "Str {:.0} Cities {} Dist {:.0}", "国力{:.0} 城{} 距离{:.0}", n.strength, n.cities, n.home.dist(home));
+            self.gfx.text(&st, rx + 126.0, ry + 5.0, 146.0, 20.0, Font::Small, [0.75, 0.72, 0.66, 1.0]);
             let (rel, rc) = if war {
                 if locked {
-                    ("交戦中（連合）", [1.0, 0.35, 0.3, 1.0])
+                    (t!("交戦中（連合）", "At war (coalition)", "交战中（联军）"), [1.0, 0.35, 0.3, 1.0])
                 } else if offer {
-                    ("和睦の申し入れ", [0.6, 0.9, 1.0, 1.0])
+                    (t!("和睦の申し入れ", "Peace offered", "议和请求"), [0.6, 0.9, 1.0, 1.0])
                 } else {
-                    ("交戦中", [1.0, 0.45, 0.35, 1.0])
+                    (t!("交戦中", "Fighting", "交战中"), [1.0, 0.45, 0.35, 1.0])
                 }
             } else if truce > 0.0 {
-                ("休戦中", [0.7, 0.9, 0.7, 1.0])
+                (t!("休戦中", "Truce", "休战中"), [0.7, 0.9, 0.7, 1.0])
             } else {
-                ("平和", [0.75, 0.75, 0.7, 1.0])
+                (t!("平和", "Peace", "和平"), [0.75, 0.75, 0.7, 1.0])
             };
-            let rel = if !war && truce > 0.0 { format!("休戦 残{}年", truce.ceil() as i32) } else { rel.to_string() };
-            self.gfx.text(&rel, rx + 260.0, ry + 4.0, 110.0, 20.0, Font::Small, rc);
+            let rel = if !war && truce > 0.0 { tf!("休戦 残{}年", "Truce, {} yrs", "休战 剩{}年", truce.ceil() as i32) } else { rel.to_string() };
+            self.gfx.text(&rel, rx + 274.0, ry + 4.0, colw - 364.0, 20.0, Font::Small, rc);
             let bx = rx + colw - 82.0;
             if war {
-                let lbl = if offer { "受諾" } else { "和睦" };
+                let lbl = if offer { t!("受諾", "Accept", "接受") } else { t!("和睦", "Peace", "议和") };
                 self.add_button(bx, ry + 2.0, bx + 70.0, ry + rowh - 2.0, lbl, "", 0, !locked, Act::Peace(o), "");
             } else {
-                self.add_button(bx, ry + 2.0, bx + 70.0, ry + rowh - 2.0, "宣戦", "", 0, truce <= 0.0, Act::War(o), "");
+                self.add_button(bx, ry + 2.0, bx + 70.0, ry + rowh - 2.0, t!("宣戦", "War", "宣战"), "", 0, truce <= 0.0, Act::War(o), "");
             }
         }
     }
@@ -3752,32 +3786,34 @@ impl Game {
         if let Some(ic) = &self.art.cmd_icons[CmdIcon::Diplo as usize] {
             self.gfx.draw_bitmap(ic, x0 + 16.0, y0 + 8.0, x0 + 48.0, y0 + 40.0);
         }
-        self.gfx.text_shadow("和睦の申し入れ", x0 + 56.0, y0 + 10.0, 260.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
+        self.gfx.text_shadow(t!("和睦の申し入れ", "Peace offered", "议和请求"), x0 + 56.0, y0 + 10.0, 260.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
         let rest = self.world.peace_asks.len();
         if rest > 1 {
-            let s = format!("ほか{}件", rest - 1);
+            let s = tf!("ほか{}件", "{} more", "另有{}件", rest - 1);
             self.gfx.text(&s, x0 + pw - 110.0, y0 + 18.0, 96.0, 20.0, Font::Small, [0.8, 0.78, 0.7, 1.0]);
         }
         self.art.draw_inset_box(&self.gfx, x0 + 12.0, y0 + 48.0, x0 + pw - 12.0, y0 + ph - 62.0);
         let n = &self.world.nations[o];
         self.gfx.fill_rect(x0 + 24.0, y0 + 62.0, x0 + 40.0, y0 + 78.0, c4(n.color, 1.0));
-        let s = format!("{} が和睦を申し入れてきた（{}）", n.name, q.why);
+        let s = tf!("{} が和睦を申し入れてきた（{}）", "{} offers peace ({})", "{}提出议和（{}）", crate::lang::tx(n.name), q.why);
         self.gfx.text(&s, x0 + 48.0, y0 + 58.0, pw - 70.0, 24.0, Font::Normal, [0.95, 0.92, 0.85, 1.0]);
         let dur = (self.world.years - self.world.war_start[pl][o]).max(0.0);
-        let s = format!(
+        let s = tf!(
             "交戦{}年　国力：自国 {:.0}　{} {:.0}\n受諾すると{}年間休戦し、その間は互いに宣戦できない。\n退けると交戦を続ける。",
+            "At war for {} years.  Strength: us {:.0}, {} {:.0}\nAccepting brings a {}-year truce in which neither side may declare war.\nRefusing continues the war.",
+            "交战{}年　国力：我国 {:.0}　{} {:.0}\n接受则休战{}年，其间双方均不能宣战。\n拒绝则继续交战。",
             dur.floor() as i32,
             self.world.nations[pl].strength,
-            n.name,
+            crate::lang::tx(n.name),
             n.strength,
             q.years as i32
         );
         self.gfx.text(&s, x0 + 24.0, y0 + 88.0, pw - 48.0, 96.0, Font::Small, [0.82, 0.8, 0.74, 1.0]);
         let bw = (pw - 60.0) / 2.0;
         let by = y0 + ph - 52.0;
-        let lbl = format!("受諾（休戦{}年）", q.years as i32);
-        self.add_button(x0 + 20.0, by, x0 + 20.0 + bw, by + 38.0, &lbl, "", 'Y' as u32, true, Act::PeaceAnswer(true), "和睦して休戦する（Y）");
-        self.add_button(x0 + 40.0 + bw, by, x0 + 40.0 + 2.0 * bw, by + 38.0, "拒否（交戦を続ける）", "", 'N' as u32, true, Act::PeaceAnswer(false), "申し入れを退けて戦を続ける（N）");
+        let lbl = tf!("受諾（休戦{}年）", "Accept ({}-year truce)", "接受（休战{}年）", q.years as i32);
+        self.add_button(x0 + 20.0, by, x0 + 20.0 + bw, by + 38.0, &lbl, "", 'Y' as u32, true, Act::PeaceAnswer(true), t!("和睦して休戦する（Y）", "Make peace and agree a truce (Y)", "议和并休战（Y）"));
+        self.add_button(x0 + 40.0 + bw, by, x0 + 40.0 + 2.0 * bw, by + 38.0, t!("拒否（交戦を続ける）", "Refuse (keep fighting)", "拒绝（继续交战）"), "", 'N' as u32, true, Act::PeaceAnswer(false), t!("申し入れを退けて戦を続ける（N）", "Refuse the offer and keep fighting (N)", "拒绝请求，继续作战（N）"));
     }
 
     fn render_help(&mut self) {
@@ -3792,11 +3828,11 @@ impl Game {
         if let Some(ic) = &self.art.cmd_icons[CmdIcon::Help as usize] {
             self.gfx.draw_bitmap(ic, x0 + 16.0, y0 + 8.0, x0 + 48.0, y0 + 40.0);
         }
-        self.gfx.text_shadow("兵法・遊び方", x0 + 56.0, y0 + 10.0, 220.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
-        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, "閉じる", "", 0, true, Act::CloseOverlay, "");
+        self.gfx.text_shadow(t!("兵法・遊び方", "How to Play", "兵法・玩法"), x0 + 56.0, y0 + 10.0, 220.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
+        self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, t!("閉じる", "Close", "关闭"), "", 0, true, Act::CloseOverlay, "");
         self.art.draw_inset_box(&self.gfx, x0 + 14.0, y0 + 46.0, x0 + pw - 14.0, y0 + ph - 14.0);
-        let text = "\
-■ 目的　紀元前221年までに天下を統一せよ。時間は全ての国で共通に流れ（春秋は1年＝4秒、戦国は時間がゆっくり流れ1年＝8秒）、春秋時代（〜前453年）から戦国時代へ移る。どの国も同じ時代補正を受け、一部の国だけ文明が進むことはない。
+        let text = t!(
+            "■ 目的　紀元前221年までに天下を統一せよ。時間は全ての国で共通に流れ（春秋は1年＝4秒、戦国は時間がゆっくり流れ1年＝8秒）、春秋時代（〜前453年）から戦国時代へ移る。どの国も同じ時代補正を受け、一部の国だけ文明が進むことはない。
 
 ■ 資源　糧（田を耕す）・木（森を伐採）・銅（銅山を採掘）。民が集めて都・邑へ運ぶ。城邑からも少しずつ税収がある。
 
@@ -3809,6 +3845,7 @@ impl Game {
 ■ 覇者の呼びかけ（春秋）　宣戦や攻略を繰り返すと「諸侯の警戒」が高まり、100に達すると最強国が諸侯に呼びかけ、周辺国が15年間一斉に攻めてくる。
 ■ 合従軍（戦国）　突出して強い国が現れると、周辺国が合従して15年間一斉に攻撃する。
 ■ 三家分晋　戦国時代の到来とともに晋は韓・趙・魏に分かれる。
+■ 滅亡と人口上限　国が滅ぶと、その国の民・兵の上限（4と、それまでに分けられた分）が生き残った国に分けられる（攻め滅ぼした国が優先）。分けられた分は、城邑の数で決まる上限（最大25）に上乗せされる。
 ■ 要塞　民だけを選ぶと「要塞（R）」で築ける（糧300・木400・銅300）。近づく敵兵を射る（射程9）。数は「1＋城邑の数÷2」まで（最大6）。余った資源の使い道に。
 ■ 史実の出来事　史実の年になると、英雄・諸子百家・政治指導者が現れて国を強くし（一定年数、生産や武が上がる）、反乱や簒奪で兵や蓄えを失い君主家（国姓）が変わる。その国が滅んでいれば起こらない。記録と各国の君主家・人物は「史記」（F3、外交画面から）で見られる。
 ■ 上帝降臨　史実で中華が統一された紀元前221年までに天下を統一できなければ、上帝が秦に降臨する（秦が滅んでいても蘇る）。上帝の軍には抗えず、10年のうちに中華は秦に統一され、ゲームは終わる。
@@ -3826,7 +3863,10 @@ impl Game {
 　Ctrl を押しながら建物を置く：建設の予約（続けて置ける）。選んだ民は今の建設を終えてから、置いた順に建てていく（建設地に順番を表示）
 　Ctrl+数字：部隊登録　数字：部隊呼び出し　.：待機中の民　Home：国都へ
 　ホイール：拡大縮小　中ボタンドラッグ・矢印キー・画面端：スクロール　ミニマップクリック：移動
-　Space：一時停止　＋／－：速度　Esc：取り消し　F5：記録（セーブ・ロード）　F11：全画面　Ctrl＋＋／Ctrl＋−：文字の大きさ";
+　Space：一時停止　＋／－：速度　Esc：取り消し　F5：記録（セーブ・ロード）　F11：全画面　Ctrl＋＋／Ctrl＋−：文字の大きさ",
+            "■ Goal  Unify the realm by 221 BC. Time flows the same for every state (in the Spring and Autumn period 1 year = 4 s; in the Warring States time slows to 1 year = 8 s), moving from the Spring and Autumn period (until 453 BC) into the Warring States. Every state gets the same era bonus; no state advances alone.\n\n■ Resources  Food (farm fields), wood (cut forests), bronze (mine). Workers carry them to the capital or a town. Cities also pay a little tax.\n\n■ Units  The number you can field is limited (more cities raise it). Instead, Train / Educate raises each unit's power (capped per era; the cost is paid mostly from whichever of food, wood and bronze you have most of, so nothing goes to waste). Soldiers eat food just by existing (upkeep); without food they weaken. Soldiers can be disbanded into workers and workers drafted as halberdiers, but power drops to 2/3.\n  Counters: halberdier > chariot (cavalry) > crossbowman > halberdier.\n\n■ Diplomacy  F2 opens Diplomacy. You must declare war before attacking. Capture a city and it becomes yours. A state that loses all its cities falls.\n■ Peace offers  When an enemy offers peace (including when a coalition disbands or a historical truce occurs), answer Accept (Y) or Refuse (N). Time stops until you answer. Refuse to keep fighting.\n\n■ The Hegemon's Call (Spring and Autumn)  Repeated wars and conquests raise the lords' alarm. At 100 the strongest state calls on the lords and the neighbors attack together for 15 years.\n■ Grand Alliance (Warring States)  When one state grows far stronger than the rest, its neighbors ally and attack together for 15 years.\n■ Partition of Jin  At the start of the Warring States, Jin splits into Han, Zhao and Wei.\n■ Fallen states  When a state falls, its population allowance (4, plus whatever it had received) is shared among the surviving states, the conqueror first. It is added on top of the worker and soldier limits set by your cities (normally 25 at most).\n■ Forts  With only workers selected, press Fort (R) to build one (food 300, wood 400, bronze 300). It shoots enemy soldiers that come near (range 9). You may have 1 + cities ÷ 2 of them (6 at most). A good use for surplus resources.\n■ Historical events  In the right year, heroes, philosophers and statesmen appear and strengthen their state (production or military up for some years), while revolts and usurpations cost soldiers and stores and change the ruling house. Events of fallen states do not happen. See the records and each state's house and figures in the Annals (F3, or from Diplomacy).\n■ Descent of the Supreme Deity  If the realm is not unified by 221 BC, the year it was unified in history, the Supreme Deity descends upon Qin (Qin returns even if destroyed). None can resist the Deity's army; within 10 years China is unified under Qin and the game ends.\n■ Heroic Spirits mode (chosen on the title screen, off by default)  Select workers and press Summon Spirit (H) to sacrifice them and summon a spirit from the Three Sovereigns to the Warring States, across eras and states. A spirit has 1.1–3.0 times the total power of the sacrifice (it depends on the spirit). Each state may have one spirit at a time, and a spirit never appears for two states. Other states summon too. Only spirits can harm the Deity's soldiers, and cities near a spirit cannot be taken by the Deity's army. If your territory is larger than the Deity's Qin 10 years after the Descent, you win.\n■ National traits  Each state has historical traits (see the title screen and the Annals). Zhou cannot fall in the Spring and Autumn period (an attacker withdraws from its last city). Qin's cities are hard to take behind its passes, Zhao's cavalry is strong after adopting Hu dress (from 307 BC), Han has fine crossbows, Wei its armored infantry, and merchants flock to Qi, Song and Zheng.\n■ Trade (F4)  Merchants who belong to no state travel the land and gather in states with high production. They pay tax (coin) just by passing through your land, and their number grows with the total production of the Central Plains. Lighter taxes draw more merchants. Coin buys food, wood and bronze at the market. Western merchants come only to the lands at the end of the Hexi Corridor, the Steppe Road and the Shu–India Road (Guanzhong, Hedong, Luoyi; the northern frontier; Shu and Ba) and pay a lot of tax.\n■ Hill and steppe peoples  The Quanrong, Shanrong, Linhu, Donghu, Xiongnu, Baiyue and others are not states. They appear in their historical eras, raid weakly defended states (taking a city, they seize its stores and leave) or come to trade horses and furs. Hire them as mercenaries with coin on the Trade screen; while hired they will not attack you.\n■ Time stops while commanding  Selecting your own units stops time; it resumes when you give an order (move, attack, gather, build...) or clear the selection. It also stops while drag-selecting.\n■ Fog of war  You see only around your own workers, soldiers and buildings. Land you have seen stays dimly visible with its terrain and cities, but not enemy soldiers. The capitals of all lords are known from the start.\n\n■ Controls\n  Left click: select   Drag: box select   Double click: select all of a type   Shift: add to selection\n  Right click: move / attack / gather (forest, mine, field) / help build   Right click with a building selected: rally point\n  A: attack-move   S: stop   T: train / educate   C: convert soldier ⇔ worker   Q/W/E: build / train\n  Hold Ctrl while placing buildings: reserve builds (keep placing). The selected workers finish their current build, then build in the order placed (numbers show the order)\n  Ctrl+number: save group   Number: recall group   .: idle worker   Home: go to capital\n  Wheel: zoom   Middle drag / arrow keys / screen edge: scroll   Minimap click: jump\n  Space: pause   + / -: speed   Esc: cancel   F5: save / load   F11: fullscreen   Ctrl++ / Ctrl+−: text size",
+            "■ 目标　在公元前221年之前统一天下。时间对所有国家同样流逝（春秋时1年＝4秒，战国时时间放慢为1年＝8秒），由春秋时代（至前453年）进入战国时代。各国享有相同的时代加成，不会只有部分国家文明领先。\n\n■ 资源　粮（耕田）、木（伐木）、铜（采铜矿）。由民采集并运往都、邑。城邑也会缴纳少量税收。\n\n■ 单位　可指挥的数量有上限（随城邑数增加）。作为补偿，可通过“训练／教化”提升每个单位的能力（各时代有上限。费用优先从粮、木、铜中储量较多者支付，任何资源都不会浪费）。军事单位只要存在就会消耗粮（维持费），粮尽则士兵逐渐衰弱。士兵可解散为民，民可征为戈兵，但能力降为2/3。\n　相克关系：戈兵＞战车（骑兵）＞弩兵＞戈兵。\n\n■ 外交　按 F2 打开外交画面。不宣战就不能攻击他国。攻下城邑即归我方所有。失去全部城邑的国家灭亡。\n■ 议和请求　交战国提出议和（包括联军解散、史实休战）时，以“接受（Y）”或“拒绝（N）”回应。回应之前时间停止。拒绝即可继续交战。\n\n■ 霸主号召（春秋）　频繁宣战或攻城会提高“诸侯警戒”，达到100时最强之国号召诸侯，周边各国在15年内一齐来攻。\n■ 合纵军（战国）　出现一枝独秀的强国时，周边各国合纵，在15年内一齐进攻。\n■ 三家分晋　战国时代到来时，晋分裂为韩、赵、魏。\n■ 灭亡与人口上限　国家灭亡时，其民与兵的上限（4，加上此前分得的部分）会分给存活的国家，攻灭者优先。分得的部分加在由城邑数决定的上限（最多25）之上。\n■ 要塞　只选中民时，可用“要塞（R）”修筑（粮300・木400・铜300）。射击靠近的敌兵（射程9）。数量上限为“1＋城邑数÷2”（最多6）。可消耗多余资源。\n■ 史实事件　到了史实年份，英雄、诸子百家、政治家会出现并增强国力（一定年数内生产或武力提升）；叛乱与篡位则会损失士兵与储备，君主家（国姓）随之更替。若该国已灭亡则不会发生。记录及各国君主家、人物可在“史记”（F3，或从外交画面）查看。\n■ 上帝降临　若未能在史实上中华统一的公元前221年之前统一天下，上帝将降临于秦（即使秦已灭亡也会复活）。上帝之军不可抗拒，10年之内中华将归于秦，游戏结束。\n■ 英灵模式（在标题画面选择，默认关闭）　选中民后按“召唤英灵”（H），即可献祭所选的民，跨越时代与国界召唤自三皇五帝至春秋战国的英灵。英灵能力为祭品能力总和的1.1〜3.0倍（因英灵而异）。每国同时只能拥有一位英灵，同一英灵不会出现在两国。他国也会召唤。只有英灵能伤及上帝之兵，英灵附近的城邑也不会被上帝之军夺走。上帝降临10年后，若我国版图大于上帝之秦即获胜。\n■ 国家特点　各国拥有基于史实的特点（可在标题画面与史记中查看）。周在春秋时代不会灭亡（即使最后的城邑被攻破，攻方也会撤兵）。秦有关中之险，城池坚固；赵推行胡服骑射（前307年起）后骑兵强大；韩有强弩，魏有武卒；齐、宋、郑商人云集，等等。\n■ 贸易（F4）　不属于任何国家的商人周游列国，生产力越高的国家聚集越多。商人只要途经领内就会缴税（钱），其数量与中原整体生产量成正比。税率越轻，商人越多。钱可在市场换成粮、木、铜。西域商人只会来到河西走廊、草原之路、蜀身毒道尽头的地区（关中、河东、洛邑，北方边地，蜀、巴），并缴纳大量税收。\n■ 山地与游牧民　犬戎、山戎、林胡、东胡、匈奴、百越等不是国家。他们按时代出现，或来劫掠防守薄弱的国家（攻下城邑后夺取储备撤走），或来贩卖马匹、毛皮。可在贸易画面用钱雇其为佣兵，受雇期间不会袭击雇主。\n■ 指挥中时间停止　选中己方单位时时间停止，下达移动、攻击、采集、建造等命令（或取消选择）后继续。框选拖动时也会停止。\n■ 战争迷雾　只能看到己方民、兵、建筑周围。看过的土地会暗淡地保留，可见地形与城池，但看不到敌兵。诸侯都城的位置从一开始就已知。\n\n■ 操作\n　左键：选择　拖动：框选　双击：选择全部同类　Shift：追加选择\n　右键：移动／攻击／采集（森林・铜矿・田）／协助建造　选中建筑时右键：集结点\n　A：进军（攻击移动）　S：停止　T：训练・教化　C：兵⇔民转换　Q/W/E：建造・训练\n　按住 Ctrl 放置建筑：预约建造（可连续放置）。所选的民完成当前建造后，按放置顺序依次建造（建造地显示顺序）\n　Ctrl+数字：编队　数字：调出编队　.：闲置的民　Home：回国都\n　滚轮：缩放　中键拖动・方向键・画面边缘：滚动　点击小地图：移动\n　Space：暂停　＋／－：速度　Esc：取消　F5：存档（保存・读取）　F11：全屏　Ctrl＋＋／Ctrl＋−：文字大小"
+        );
         // 入りきらなければ小さい字にする
         let f = if self.gfx.measure_h(text, Font::Normal, pw - 48.0) > ph - 64.0 { Font::Small } else { Font::Normal };
         self.gfx.text(text, x0 + 24.0, y0 + 52.0, pw - 48.0, ph - 64.0, f, [0.92, 0.9, 0.84, 1.0]);
@@ -3842,15 +3882,15 @@ impl Game {
         self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + pw, y0 + 260.0);
         self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + pw - 3.0, y0 + 257.0, 16.0);
         let title = if win {
-            "勝利"
+            t!("勝利", "Victory", "胜利")
         } else if self.world.descent.is_some() {
-            "天命は秦に"
+            t!("天命は秦に", "Heaven's Mandate Passes to Qin", "天命归秦")
         } else {
-            "敗北"
+            t!("敗北", "Defeat", "败北")
         };
         self.gfx.text_shadow(title, x0, y0 + 20.0, pw, 60.0, Font::Title, if win { [1.0, 0.85, 0.4, 1.0] } else { [0.9, 0.4, 0.35, 1.0] });
         self.gfx.text(&text, x0 + 20.0, y0 + 100.0, pw - 40.0, 60.0, Font::BigCenter, [0.95, 0.92, 0.85, 1.0]);
-        self.add_button(x0 + pw / 2.0 - 210.0, y0 + 180.0, x0 + pw / 2.0 - 10.0, y0 + 228.0, "新しい天下へ", "", 0, true, Act::Restart, "");
-        self.add_button(x0 + pw / 2.0 + 10.0, y0 + 180.0, x0 + pw / 2.0 + 210.0, y0 + 228.0, "記録から再開 F5", "", 0, true, Act::SaveMenu, "");
+        self.add_button(x0 + pw / 2.0 - 210.0, y0 + 180.0, x0 + pw / 2.0 - 10.0, y0 + 228.0, t!("新しい天下へ", "New game", "新的天下"), "", 0, true, Act::Restart, "");
+        self.add_button(x0 + pw / 2.0 + 10.0, y0 + 180.0, x0 + pw / 2.0 + 210.0, y0 + 228.0, t!("記録から再開 F5", "Load a save F5", "读取存档 F5"), "", 0, true, Act::SaveMenu, "");
     }
 }

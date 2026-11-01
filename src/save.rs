@@ -73,7 +73,7 @@ pub struct Reader<'a> {
 pub type RResult<T> = Result<T, String>;
 
 fn eof() -> String {
-    "記録が途中で切れている".to_string()
+    t!("記録が途中で切れている", "The save is truncated", "存档不完整").to_string()
 }
 
 impl<'a> Reader<'a> {
@@ -99,7 +99,7 @@ impl<'a> Reader<'a> {
             }
             sh += 7;
             if sh > 63 {
-                return Err("記録が壊れている（整数）".into());
+                return Err(t!("記録が壊れている（整数）", "The save is damaged (integer)", "存档已损坏（整数）").into());
             }
         }
     }
@@ -113,7 +113,7 @@ impl<'a> Reader<'a> {
     pub fn len(&mut self, max: usize) -> RResult<usize> {
         let n = self.usize()?;
         if n > max {
-            return Err("記録が壊れている（長さ）".into());
+            return Err(t!("記録が壊れている（長さ）", "The save is damaged (length)", "存档已损坏（长度）").into());
         }
         Ok(n)
     }
@@ -140,7 +140,7 @@ impl<'a> Reader<'a> {
     pub fn str(&mut self) -> RResult<String> {
         let n = self.len(1 << 20)?;
         let b = self.take(n)?;
-        String::from_utf8(b.to_vec()).map_err(|_| "記録が壊れている（文字列）".to_string())
+        String::from_utf8(b.to_vec()).map_err(|_| t!("記録が壊れている（文字列）", "The save is damaged (text)", "存档已损坏（文字）").to_string())
     }
     pub fn bytes(&mut self, n: usize) -> RResult<&'a [u8]> {
         self.take(n)
@@ -148,14 +148,14 @@ impl<'a> Reader<'a> {
     pub fn rle(&mut self, expect: usize) -> RResult<Vec<u8>> {
         let n = self.usize()?;
         if n != expect {
-            return Err("記録の地図の大きさが合わない".into());
+            return Err(t!("記録の地図の大きさが合わない", "The map size in the save does not match", "存档的地图尺寸不符").into());
         }
         let mut out = Vec::with_capacity(n);
         while out.len() < n {
             let v = self.u8()?;
             let k = self.usize()?;
             if out.len() + k > n {
-                return Err("記録が壊れている（地図）".into());
+                return Err(t!("記録が壊れている（地図）", "The save is damaged (map)", "存档已损坏（地图）").into());
             }
             out.extend(std::iter::repeat(v).take(k));
         }

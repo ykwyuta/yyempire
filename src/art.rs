@@ -122,7 +122,6 @@ pub struct Art {
     pub btn_dis: Option<ID2D1Bitmap>,
     pub res_icons: [Option<ID2D1Bitmap>; 7],
     pub cmd_icons: [Option<ID2D1Bitmap>; 22],
-    pub unit_badges: [Option<ID2D1Bitmap>; 5],
     pub unit_sprites: [Option<ID2D1Bitmap>; 5],
     pub unit_sprites_flip: [Option<ID2D1Bitmap>; 5],
     pub bld_sprites: [Option<ID2D1Bitmap>; 5],
@@ -907,35 +906,6 @@ fn gen_cmd_icon(kind: CmdIcon) -> Vec<u32> {
     cv.to_bgra_premul()
 }
 
-/// 48x48 マップ上のユニット兵種メダルアイコン（文字「民」「戈」等の代わりに表示する高視認性エンブレム）
-fn gen_unit_badge(idx: usize) -> Vec<u32> {
-    let mut cv = Canvas::new(48, 48);
-    // 半透明のドロップシャドウ
-    cv.circle(24.0, 25.5, 21.5, [0.0, 0.0, 0.0, 0.55]);
-    let bg = match idx {
-        0 => [0.14, 0.26, 0.32, 0.94], // 民：紺青・青磁
-        1 => [0.38, 0.12, 0.10, 0.94], // 戈兵：朱漆
-        2 => [0.12, 0.30, 0.18, 0.94], // 弩兵：深緑
-        3 => [0.38, 0.24, 0.10, 0.94], // 戦車：琥珀・青銅
-        _ => [0.18, 0.20, 0.38, 0.94], // 騎兵：群青
-    };
-    cv.circle(24.0, 24.0, 20.0, bg);
-    cv.ring(24.0, 24.0, 19.5, 2.2, [0.92, 0.76, 0.36, 0.98]);
-    cv.ring(24.0, 24.0, 17.2, 0.9, [0.45, 0.34, 0.16, 0.85]);
-
-    let uv = match idx {
-        0 => (0.04, 0.0, 0.96, 0.72),
-        1 => (0.04, 0.0, 0.96, 0.72),
-        2 => (0.04, 0.0, 0.96, 0.72),
-        3 => (0.0, 0.06, 1.0, 0.94),
-        _ => (0.06, 0.0, 0.96, 0.84),
-    };
-    cv.blit_unit_sprite(idx, (4.0, 4.0, 44.0, 44.0), uv, Some((24.0, 24.0, 18.6)));
-    cv.ring(24.0, 24.0, 19.5, 2.2, [0.95, 0.80, 0.38, 0.98]);
-    cv.ring(24.0, 24.0, 17.6, 0.9, [0.45, 0.34, 0.16, 0.85]);
-    cv.to_bgra_premul()
-}
-
 impl Art {
     pub fn new() -> Self {
         Self {
@@ -948,7 +918,6 @@ impl Art {
             btn_dis: None,
             res_icons: Default::default(),
             cmd_icons: Default::default(),
-            unit_badges: Default::default(),
             unit_sprites: Default::default(),
             unit_sprites_flip: Default::default(),
             bld_sprites: Default::default(),
@@ -1019,7 +988,6 @@ impl Art {
             self.cmd_icons[c as usize] = gfx.create_bitmap(64, 64, &gen_cmd_icon(c));
         }
         for b in 0..5 {
-            self.unit_badges[b] = gfx.create_bitmap(48, 48, &gen_unit_badge(b));
             let sz = UNIT_SPRITE_SZ as u32;
             self.unit_sprites[b] = gfx.create_bitmap(sz, sz, &load_unit_sprite_bgra(b, false));
             self.unit_sprites_flip[b] = gfx.create_bitmap(sz, sz, &load_unit_sprite_bgra(b, true));
@@ -1146,22 +1114,6 @@ impl Art {
         } else {
             self.unit_sprites[idx].as_ref()
         }
-    }
-
-    pub fn unit_badge(&self, k: UnitKind, era: Era) -> Option<&ID2D1Bitmap> {
-        let idx = match k {
-            UnitKind::Worker => 0,
-            UnitKind::Infantry => 1,
-            UnitKind::Archer => 2,
-            UnitKind::Chariot => {
-                if era == Era::Spring {
-                    3
-                } else {
-                    4
-                }
-            }
-        };
-        self.unit_badges[idx].as_ref()
     }
 
     pub fn unit_icon(&self, k: UnitKind, era: Era) -> Option<&ID2D1Bitmap> {
@@ -1420,15 +1372,6 @@ fn c4(c: [f32; 3], a: f32) -> [f32; 4] {
 
 fn darker(c: [f32; 3], k: f32) -> [f32; 3] {
     [c[0] * k, c[1] * k, c[2] * k]
-}
-
-fn lighter(c: [f32; 3], k: f32) -> [f32; 3] {
-    [(c[0] + k).min(1.0), (c[1] + k).min(1.0), (c[2] + k).min(1.0)]
-}
-
-fn quad(g: &mut Gfx, a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32), col: [f32; 4]) {
-    g.tri(a, b, c, col);
-    g.tri(a, c, d, col);
 }
 
 /// マップ外周の Age of Empires 風木製・真鍮フレームを描く

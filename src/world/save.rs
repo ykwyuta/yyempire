@@ -9,10 +9,10 @@ use crate::ai::AiState;
 use crate::save::{RResult, Reader, Writer};
 
 /// 記録形式の版（中身の並びを変えたら上げる）
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 fn bad(what: &str) -> String {
-    format!("記録が壊れている（{}）", what)
+    tf!("記録が壊れている（{}）", "The save is damaged ({})", "存档已损坏（{}）", what)
 }
 
 // ------------------------------------------------------------ 列挙型 ⇔ 数値
@@ -38,7 +38,7 @@ fn terrain_of(v: u8) -> RResult<Terrain> {
         5 => Terrain::Forest,
         6 => Terrain::Hill,
         7 => Terrain::Mountain,
-        _ => return Err(bad("地形")),
+        _ => return Err(bad(t!("地形", "terrain", "地形"))),
     })
 }
 fn kind_of(v: u8) -> RResult<UnitKind> {
@@ -47,7 +47,7 @@ fn kind_of(v: u8) -> RResult<UnitKind> {
         1 => UnitKind::Infantry,
         2 => UnitKind::Archer,
         3 => UnitKind::Chariot,
-        _ => return Err(bad("兵種")),
+        _ => return Err(bad(t!("兵種", "unit type", "兵种"))),
     })
 }
 fn bkind_u8(k: BKind) -> u8 {
@@ -66,7 +66,7 @@ fn bkind_of(v: u8) -> RResult<BKind> {
         2 => BKind::Barracks,
         3 => BKind::Farm,
         4 => BKind::Fort,
-        _ => return Err(bad("建物")),
+        _ => return Err(bad(t!("建物", "building", "建筑"))),
     })
 }
 
@@ -127,7 +127,7 @@ fn r_target(r: &mut Reader) -> RResult<Target> {
     Ok(match r.u8()? {
         0 => Target::Unit(r_h(r)?),
         1 => Target::Bld(r_h(r)?),
-        _ => return Err(bad("攻撃目標")),
+        _ => return Err(bad(t!("攻撃目標", "attack target", "攻击目标"))),
     })
 }
 fn w_order(w: &mut Writer, o: Order) {
@@ -183,16 +183,16 @@ fn r_order(r: &mut Reader, mines: usize) -> RResult<Order> {
                 2 => {
                     let m = r.usize()?;
                     if m >= mines {
-                        return Err(bad("銅山"));
+                        return Err(bad(t!("銅山", "mine", "铜矿")));
                     }
                     Src::Mine(m)
                 }
-                _ => return Err(bad("採集")),
+                _ => return Err(bad(t!("採集", "gathering", "采集"))),
             };
             Order::Gather { src, phase: r.u8()? }
         }
         5 => Order::Build(r_h(r)?),
-        _ => return Err(bad("命令")),
+        _ => return Err(bad(t!("命令", "order", "命令"))),
     })
 }
 
@@ -213,7 +213,7 @@ fn static_house(s: &str) -> RResult<&'static str> {
     if s.is_empty() {
         return Ok("");
     }
-    Err(bad("君主家"))
+    Err(bad(t!("君主家", "ruling house", "君主家")))
 }
 fn static_figure(s: &str) -> RResult<&'static str> {
     for e in HISTORY {
@@ -225,7 +225,7 @@ fn static_figure(s: &str) -> RResult<&'static str> {
             }
         }
     }
-    Err(bad("人物"))
+    Err(bad(t!("人物", "figure", "人物")))
 }
 
 fn w_banner(w: &mut Writer, b: &Banner) {
@@ -342,6 +342,7 @@ impl World {
             w.f32(nt.coin_earned);
             w.f32(nt.coin_income);
             w.u8(nt.tax);
+            w.u32(nt.cap_bonus);
         }
         // ---- 外交
         let nn = NATIONS.len();
@@ -496,7 +497,7 @@ impl World {
             let i = r.usize()?;
             let v = r.f32()?;
             if i >= n {
-                return Err(bad("森"));
+                return Err(bad(t!("森", "forest", "森林")));
             }
             w.map.wood[i] = v;
         }
@@ -546,7 +547,7 @@ impl World {
             if alive {
                 u.nation = r.u8()?;
                 if u.nation as usize >= nn_all {
-                    return Err(bad("ユニットの国"));
+                    return Err(bad(t!("ユニットの国", "unit state", "单位所属国")));
                 }
                 u.kind = kind_of(r.u8()?)?;
                 u.pos = r_v2(r)?;
@@ -597,13 +598,13 @@ impl World {
             if alive {
                 b.nation = r.u8()?;
                 if b.nation as usize >= nn_all {
-                    return Err(bad("建物の国"));
+                    return Err(bad(t!("建物の国", "building state", "建筑所属国")));
                 }
                 b.kind = bkind_of(r.u8()?)?;
                 b.tx = r.i32()?;
                 b.ty = r.i32()?;
                 if !Map::inb(b.tx, b.ty) || !Map::inb(b.tx + 1, b.ty + 1) {
-                    return Err(bad("建物の位置"));
+                    return Err(bad(t!("建物の位置", "building position", "建筑位置")));
                 }
                 b.hp = r.f32()?;
                 b.progress = r.f32()?;
@@ -623,7 +624,7 @@ impl World {
         // ---- 国
         let nnat = r.len(1000)?;
         if nnat != w.nations.len() {
-            return Err("記録の国の数が合わない（別の版の記録）".into());
+            return Err(t!("記録の国の数が合わない（別の版の記録）", "The number of states does not match (save from another version)", "存档中的国家数量不符（其他版本的存档）").into());
         }
         for i in 0..nnat {
             let alive = r.bool()?;
@@ -663,6 +664,7 @@ impl World {
             nt.coin_earned = r.f32()?;
             nt.coin_income = r.f32()?;
             nt.tax = r.u8()?.min(2);
+            nt.cap_bonus = r.u32()?.min(10_000);
         }
         // ---- 外交
         let nn = NATIONS.len();
@@ -680,7 +682,7 @@ impl World {
         for _ in 0..np {
             let from = r.usize()?;
             if from >= nn {
-                return Err(bad("和睦の申し入れ"));
+                return Err(bad(t!("和睦の申し入れ", "peace offer", "议和请求")));
             }
             w.peace_asks.push_back(PeaceAsk { from, years: r.f32()?, why: r.str()? });
         }
@@ -693,7 +695,7 @@ impl World {
             let k = r.len(1000)?;
             let members: Vec<usize> = (0..k).map(|_| r.usize()).collect::<RResult<_>>()?;
             if target >= nn || leader >= nn || members.iter().any(|&m| m >= nn) {
-                return Err(bad("連合"));
+                return Err(bad(t!("連合", "coalition", "联军")));
             }
             coalitions.push(Coalition { kind, target, leader, members, end: r.f32()? });
         }
@@ -704,7 +706,7 @@ impl World {
         w.era = if r.u8()? == 0 { Era::Spring } else { Era::Warring };
         w.player = r.usize()?;
         if w.player >= nn {
-            return Err(bad("自国"));
+            return Err(bad(t!("自国", "player state", "己方国家")));
         }
         w.time = r.f32()?;
         w.stat_t = r.f32()?;
@@ -758,7 +760,7 @@ impl World {
                 0 => CaravanKind::Merchant,
                 1 => CaravanKind::Western(r.u8()?),
                 2 => CaravanKind::Tribe(r.u8()?),
-                _ => return Err(bad("隊商")),
+                _ => return Err(bad(t!("隊商", "caravan", "商队"))),
             };
             let pos = r_v2(r)?;
             let dir = r_v2(r)?;
@@ -776,7 +778,7 @@ impl World {
         w.trade.caravans = caravans;
         let nt = r.len(1000)?;
         if nt != w.trade.tribes.len() {
-            return Err(bad("部族"));
+            return Err(bad(t!("部族", "tribe", "部族")));
         }
         for t in 0..nt {
             let next = r.f32()?;
@@ -791,7 +793,7 @@ impl World {
             let tribe = r.usize()?;
             let target = r.usize()?;
             if tribe >= TRIBES.len() || target >= nn {
-                return Err(bad("略奪団"));
+                return Err(bad(t!("略奪団", "raiders", "劫掠团")));
             }
             let city = r_h(r)?;
             let k = r.len(10_000)?;

@@ -38,7 +38,6 @@ pub enum Font {
     Big,
     BigCenter,
     Title,
-    Label,
 }
 
 #[derive(Debug)]
@@ -78,7 +77,16 @@ impl Gfx {
             d2d_gen: 1,
         };
         g.update_scale();
+        g.reload_fonts();
         g
+    }
+
+    /// 言語が変わったら書体とページの題名を切り替える（日本語・中国語・英語で書体が違う）
+    pub fn reload_fonts(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        unsafe {
+            js::js_font_lang(crate::lang::lang() as u32)
+        }
     }
 
     /// UI 拡大率を決め、UI 座標系での画面寸法を更新する。

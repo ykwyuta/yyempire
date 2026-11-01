@@ -44,7 +44,9 @@ cd dist && python3 -m http.server 8000
 
 Then open http://localhost:8000/ in your browser.
 
-If the text is too small, press **Ctrl + +** or **Ctrl + −** (or use 文字 ＋／− on the title screen). **F11** switches to full screen.
+If the text is too small, press **Ctrl + +** or **Ctrl + −** (or use A− / A+ on the title screen). **F11** switches to full screen.
+
+The language button on the title screen (for example "English ▸") cycles the game between 日本語, English and 中文. Your choice is remembered the next time you start the game. On first start the game follows your browser's language (English unless it is Japanese or Chinese). You can also choose it with `?lang=ja`, `?lang=en` or `?lang=zh` at the end of the address.
 
 **Saving and loading**: press **F5** (or the 記録 F5 button at the top right) to open the save screen. There are three save slots, plus an autosave every 10 years. Use 続きから on the title screen to continue. Saves are kept in your browser; use 書き出す to download a save file (.yysav) and ファイルから読み込む to load it on another device. You can't save during the tutorial or after the game has ended.
 
@@ -135,7 +137,7 @@ There are three **resources**.
 
 Buildings go inside your own territory. Select a worker, press Q, W or E in the command panel (field, barracks, town), then click where to build. Hold **Ctrl** while placing to reserve builds and keep placing more. The selected workers finish their current build, then build the reserved sites in the order you placed them (each site shows its number). Giving them another order, such as a move, cancels the reservations. With only workers selected, R builds a fort (the button takes the place of Stop). Forts are a good use for surplus resources.
 
-**Worker and soldier limits** are each 4 + 3 × your number of cities (25 at most). More towns mean a bigger state.
+**Worker and soldier limits** are each 4 + 3 × your number of cities (25 at most). When a state falls, its allowance (4, plus whatever it had received) is shared among the surviving states, the conqueror first, and added on top of that limit, even past 25. More towns mean a bigger state.
 
 Handy commands:
 - **Auto gather (F, 自動採集)**: spreads the selected workers over free fields, forests and mines.
@@ -345,6 +347,7 @@ Heroic Spirits mode is **off by default**. Switch 「英霊モード：オフ／
 | Key | Action |
 |---|---|
 | F1 / F2 / F3 / F4 | Help / Diplomacy / Chronicle / Trade |
+| F5 | Save / load |
 | H | Summon a hero (Heroic Spirits mode, with workers selected) |
 | A | Attack-move |
 | S | Stop |

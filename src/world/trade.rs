@@ -6,7 +6,14 @@ use super::*;
 pub const TRIBE: usize = NATIONS.len();
 
 /// 税率（軽税・中税・重税）：税として取る割合と、商人の集まりやすさ
-pub const TAX_NAMES: [&str; 3] = ["軽税", "中税", "重税"];
+/// 税率の名前（0:軽税 1:中税 2:重税）
+pub fn tax_name(t: usize) -> &'static str {
+    match t {
+        0 => t!("軽税", "Light tax", "轻税"),
+        1 => t!("中税", "Normal tax", "中税"),
+        _ => t!("重税", "Heavy tax", "重税"),
+    }
+}
 pub const TAX_RATE: [f32; 3] = [0.6, 1.0, 1.5];
 pub const TAX_ATTRACT: [f32; 3] = [1.5, 1.0, 0.55];
 
@@ -124,16 +131,6 @@ pub struct Caravan {
     pub value: f32,
 }
 
-impl Caravan {
-    pub fn label(&self) -> &'static str {
-        match self.kind {
-            CaravanKind::Merchant => "商人",
-            CaravanKind::Western(_) => "西域の商人",
-            CaravanKind::Tribe(t) => TRIBES[t as usize].name,
-        }
-    }
-}
-
 /// 交易全体の状態
 pub struct Trade {
     pub caravans: Vec<Caravan>,
@@ -222,18 +219,18 @@ impl World {
     /// その国が部族から傭兵を雇えるか（雇えない理由）
     pub fn can_hire(&self, n: usize, t: usize) -> Result<(), &'static str> {
         if !tribe_active(t, self.year_bc()) {
-            return Err("この部族は今はいない");
+            return Err(t!("この部族は今はいない", "This people is not active now", "该部族目前不在"));
         }
         let home = self.tribe_home(t);
         let near = self.blds.iter().any(|b| b.alive && b.nation as usize == n && b.kind.city() && b.done() && b.center().dist(home) < 150.0);
         if !near {
-            return Err("自国の城邑から遠すぎる");
+            return Err(t!("自国の城邑から遠すぎる", "Too far from your cities", "离己方城邑太远"));
         }
         if self.trade.bands.iter().any(|b| b.tribe == t && b.target == n && b.phase == 0) {
-            return Err("この部族は自国を襲っている");
+            return Err(t!("この部族は自国を襲っている", "This people is raiding you", "该部族正在劫掠我国"));
         }
         if self.nations[n].coin < self.merc_cost() {
-            return Err("銭が足りない");
+            return Err(t!("銭が足りない", "Not enough coin", "钱不足"));
         }
         Ok(())
     }
@@ -251,7 +248,7 @@ impl World {
                 }
             }
         }
-        let Some((_, bi)) = best else { return Err("城邑がない") };
+        let Some((_, bi)) = best else { return Err(t!("城邑がない", "No city", "没有城邑")) };
         let cost = self.merc_cost();
         self.nations[n].coin -= cost;
         let bh = self.bh(bi);
@@ -273,9 +270,9 @@ impl World {
             }
         }
         self.trade.tribes[t].contract[n] = until;
-        self.trade.tribes[t].last = format!("{}に傭兵として仕える", self.nations[n].name);
+        self.trade.tribes[t].last = tf!("{}に傭兵として仕える", "Serving {} as mercenaries", "受雇于{}为佣兵", tx(self.nations[n].name));
         if n == self.player {
-            let s = format!("{}の兵{}を傭兵として雇った（{}銭・{}年）", TRIBES[t].name, MERC_N, cost, MERC_YEARS as i32);
+            let s = tf!("{}の兵{}を傭兵として雇った（{}銭・{}年）", "Hired {1} {0} warriors as mercenaries ({2} coin, {3} years)", "雇佣了{}兵{}名为佣兵（{}钱・{}年）", tx(TRIBES[t].name), MERC_N, cost, MERC_YEARS as i32);
             self.push_msg(s, [0.6, 0.9, 0.6]);
         }
         Ok(())
@@ -286,7 +283,7 @@ impl World {
         let price = self.market_price(n, k);
         let nn = &mut self.nations[n];
         if nn.coin < price {
-            return Err("銭が足りない");
+            return Err(t!("銭が足りない", "Not enough coin", "钱不足"));
         }
         nn.coin -= price;
         nn.res[k] += MARKET_LOT;
@@ -329,7 +326,7 @@ impl World {
                 paths += 1;
                 let start = c.pos.tile();
                 let goal = c.goal.tile();
-                let path = self.pf.find(&self.cost, start, goal, 2, 160000);
+                let path = self.pf.find(&self.cost, start, goal, 2, 160000, crate::path::CARAVAN_WEIGHT);
                 let c = &mut self.trade.caravans[i];
                 c.path = path;
                 c.path_i = 0;
@@ -566,7 +563,7 @@ impl World {
                     cv.stay = 0.0;
                     self.trade.caravans.push(cv);
                     if self.blds[h.idx as usize].nation as usize == self.player && self.rng.chance(0.5) {
-                        let s = format!("西域の商人が{}を通ってやって来た", ROUTES[r].name);
+                        let s = tf!("西域の商人が{}を通ってやって来た", "Western merchants arrived by the {}", "西域商人经{}而来", tx(ROUTES[r].name));
                         self.push_msg(s, [0.85, 0.75, 1.0]);
                     }
                 }
@@ -590,7 +587,7 @@ impl World {
         }
         if done.iter().any(|&i| self.units[i].nation as usize == self.player) {
             let t = self.units[done[0]].tribe as usize;
-            let s = format!("{}の傭兵は契約を終えて去った", TRIBES.get(t).map_or("部族", |d| d.name));
+            let s = tf!("{}の傭兵は契約を終えて去った", "The {} mercenaries finished their contract and left", "{}佣兵合约期满离去", TRIBES.get(t).map_or(t!("部族", "tribal", "部族"), |d| tx(d.name)));
             self.push_msg(s, [0.85, 0.85, 0.7]);
         }
         for i in done {
@@ -638,8 +635,8 @@ impl World {
         if self.trade.bands.iter().any(|b| b.tribe == t) {
             p = 0.0;
         }
-        let tname = TRIBES[t].name;
-        let nname = self.nations[target].name;
+        let tname = tx(TRIBES[t].name);
+        let nname = tx(self.nations[target].name);
         if self.rng.chance(p.min(0.9)) {
             let mut hs = Vec::new();
             for k in 0..size {
@@ -663,14 +660,14 @@ impl World {
             let goal = self.blds[bi].center();
             self.order_move(&hs, goal, true);
             self.trade.bands.push(Band { tribe: t, target, city, units: hs, phase: 0, until: self.years + 8.0, home });
-            self.trade.tribes[t].last = format!("{}へ略奪に向かった", nname);
+            self.trade.tribes[t].last = tf!("{}へ略奪に向かった", "Set out to raid {}", "前往劫掠{}", nname);
             if target == self.player {
-                let s = format!("{}の騎兵・兵{}が我が国へ略奪に向かってくる！", tname, size);
+                let s = tf!("{}の騎兵・兵{}が我が国へ略奪に向かってくる！", "{} riders and warriors ({}) are coming to raid us!", "{}的骑兵、士兵{}名正前来劫掠我国！", tname, size);
                 self.push_msg(s.clone(), [1.0, 0.4, 0.3]);
-                let text = format!("{}（{}）。城邑を守れ。傭兵として雇えば襲われなくなる。", s, TRIBES[t].desc);
-                self.queue_banner(Banner { title: format!("{}の来寇", tname), text, t: 9.0 });
+                let text = tf!("{}（{}）。城邑を守れ。傭兵として雇えば襲われなくなる。", "{} ({}). Defend your cities. Hiring them as mercenaries stops their raids.", "{}（{}）。守住城邑。雇其为佣兵即可免遭劫掠。", s, tx(TRIBES[t].desc));
+                self.queue_banner(Banner { title: tf!("{}の来寇", "{} Raid", "{}来犯", tname), text, t: 9.0 });
             } else if self.nations[target].home.dist(self.nations[self.player].home) < 80.0 {
-                self.push_msg(format!("{}が{}へ略奪に向かった", tname, nname), [0.95, 0.7, 0.5]);
+                self.push_msg(tf!("{}が{}へ略奪に向かった", "The {} set out to raid {}", "{}前往劫掠{}", tname, nname), [0.95, 0.7, 0.5]);
             }
         } else {
             let mut cv = self.new_caravan(CaravanKind::Tribe(t as u8), home, 1.6, 1);
@@ -679,9 +676,9 @@ impl World {
             cv.need_path = true;
             cv.stay = 0.0;
             self.trade.caravans.push(cv);
-            self.trade.tribes[t].last = format!("{}へ馬・毛皮を商いに来た", nname);
+            self.trade.tribes[t].last = tf!("{}へ馬・毛皮を商いに来た", "Came to {} to trade horses and furs", "前往{}贩卖马匹、毛皮", nname);
             if target == self.player {
-                self.push_msg(format!("{}が馬や毛皮を商いにやって来る", tname), [0.8, 0.9, 0.7]);
+                self.push_msg(tf!("{}が馬や毛皮を商いにやって来る", "The {} are coming to trade horses and furs", "{}前来贩卖马匹、毛皮", tname), [0.8, 0.9, 0.7]);
             }
         }
     }
@@ -696,9 +693,9 @@ impl World {
             let (t, target, phase, home, city, until) = (b.tribe, b.target, b.phase, b.home, b.city, b.until);
             if alive.is_empty() {
                 if phase == 0 {
-                    self.trade.tribes[t].last = format!("{}に撃退された", self.nations[target].name);
+                    self.trade.tribes[t].last = tf!("{}に撃退された", "Driven off by {}", "被{}击退", tx(self.nations[target].name));
                     if target == self.player {
-                        self.push_msg(format!("{}の来寇を撃退した", TRIBES[t].name), [0.5, 1.0, 0.5]);
+                        self.push_msg(tf!("{}の来寇を撃退した", "We drove off the {} raid", "击退了{}的来犯", tx(TRIBES[t].name)), [0.5, 1.0, 0.5]);
                     }
                 }
                 self.trade.bands.remove(k);
@@ -749,13 +746,13 @@ impl World {
             n.res[k] -= lost[k];
         }
         n.coin *= 1.0 - 0.3 * n.tm.plunder;
-        let mut who = "部族";
+        let mut who = t!("部族", "Raiders", "部族");
         for b in self.trade.bands.iter_mut() {
             if b.target == vn && b.phase == 0 {
                 b.phase = 1;
                 b.until = self.years + 15.0;
-                who = TRIBES[b.tribe].name;
-                self.trade.tribes[b.tribe].last = format!("{}を略奪して引き上げた", self.nations[vn].name);
+                who = tx(TRIBES[b.tribe].name);
+                self.trade.tribes[b.tribe].last = tf!("{}を略奪して引き上げた", "Raided {} and withdrew", "劫掠{}后撤回", tx(self.nations[vn].name));
             }
         }
         let backs: Vec<(Vec<Handle>, V2)> = self.trade.bands.iter().filter(|b| b.target == vn && b.phase == 1).map(|b| (b.units.clone(), b.home)).collect();
@@ -763,10 +760,10 @@ impl World {
             self.order_move(&hs, home, false);
         }
         if vn == self.player {
-            let s = format!("{}に城邑を略奪された（糧{:.0}・木{:.0}・銅{:.0}と銭の三割を失った）", who, lost[0], lost[1], lost[2]);
+            let s = tf!("{}に城邑を略奪された（糧{:.0}・木{:.0}・銅{:.0}と銭の三割を失った）", "The {} raided one of our cities (lost food {:.0}, wood {:.0}, bronze {:.0} and 30% of our coin)", "{}劫掠了我国城邑（损失粮{:.0}、木{:.0}、铜{:.0}及三成钱）", who, lost[0], lost[1], lost[2]);
             self.push_msg(s, [1.0, 0.35, 0.3]);
         } else if self.nations[vn].home.dist(self.nations[self.player].home) < 80.0 {
-            self.push_msg(format!("{}が{}の城邑を略奪した", who, self.nations[vn].name), [0.95, 0.7, 0.5]);
+            self.push_msg(tf!("{}が{}の城邑を略奪した", "The {} raided a city of {}", "{}劫掠了{}的城邑", who, tx(self.nations[vn].name)), [0.95, 0.7, 0.5]);
         }
     }
 

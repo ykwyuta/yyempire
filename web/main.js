@@ -6,7 +6,41 @@ const uiCanvas = document.getElementById('ui');
 const loading = document.getElementById('loading');
 const loadingMsg = document.getElementById('loading-msg');
 
-const FAMILY = '"Yu Gothic UI", "Yu Gothic", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, "Noto Sans JP", sans-serif';
+// ------------------------------------------------------------------ 表示言語（0=日本語 1=English 2=中文、lang.rs の Lang と同じ）
+// 書体はデスクトップ版に合わせ、日本語は游ゴシック、中国語は微軟雅黒、英語は Segoe UI。無ければ Noto Sans で代える
+const FAMILIES = [
+  '"Yu Gothic UI", "Yu Gothic", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, "Noto Sans JP", sans-serif',
+  '"Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans JP", sans-serif',
+  '"Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Noto Sans JP", sans-serif',
+];
+const LANG_CODES = ['ja', 'en', 'zh'];
+const TITLES = ['春秋戦国 — 中華統一への道', 'Warring States — The Road to Unification', '春秋战国 — 中华统一之路'];
+const LANG_KEY = 'yyempire.lang';
+// 起動時の言語：URL の ?lang=、保存した設定、ブラウザの言語の順
+function detectLang() {
+  const q = new URLSearchParams(location.search).get('lang');
+  const pick = (c) => {
+    c = (c || '').toLowerCase();
+    if (c.startsWith('ja')) return 0;
+    if (c.startsWith('zh')) return 2;
+    if (c.startsWith('en')) return 1;
+    return -1;
+  };
+  if (pick(q) >= 0) return pick(q);
+  try {
+    const saved = localStorage.getItem(LANG_KEY);
+    if (saved !== null && pick(saved) >= 0) return pick(saved);
+  } catch {}
+  for (const l of navigator.languages || [navigator.language]) {
+    const k = pick(l);
+    if (k >= 0) return k;
+  }
+  return 1;
+}
+let curLang = detectLang();
+// JS 側で出す文
+const T = (ja, en, zh) => [ja, en, zh][curLang] ?? ja;
+let FAMILY = FAMILIES[curLang];
 // gfx::Font と同じ並び：[大きさ, 中央揃え, 太字]
 const FONTS = [
   [12, false, false], // Small
@@ -15,12 +49,19 @@ const FONTS = [
   [18, false, true], // Big
   [20, true, true], // BigCenter
   [40, true, true], // Title
-  [15, true, true], // Label
 ];
 const LINE = 1.33;
 // この割合まではみ出す行は横に詰めて1行に収める
 const SQUEEZE = 1.18;
-const fontCss = FONTS.map(([sz, , bold]) => `${bold ? '700' : '400'} ${sz}px ${FAMILY}`);
+let fontCss = [];
+function setLang(l) {
+  curLang = l;
+  FAMILY = FAMILIES[l];
+  fontCss = FONTS.map(([sz, , bold]) => `${bold ? '700' : '400'} ${sz}px ${FAMILY}`);
+  document.documentElement.lang = LANG_CODES[l];
+  document.title = TITLES[l];
+}
+setLang(curLang);
 
 let wasm = null;
 let memBuf = null;
@@ -42,7 +83,7 @@ function str(ptr, len) {
 
 // ------------------------------------------------------------------ WebGL2（Direct3D11 相当）
 const gl = glCanvas.getContext('webgl2', { alpha: false, antialias: true, premultipliedAlpha: false, preserveDrawingBuffer: false });
-if (!gl) throw new Error('WebGL2 に対応したブラウザが必要です');
+if (!gl) throw new Error(T('WebGL2 に対応したブラウザが必要です', 'A browser with WebGL2 is required', '需要支持 WebGL2 的浏览器'));
 const VS = `#version 300 es
 in vec2 pos; in vec2 uv; in vec4 col;
 uniform vec4 xf;
@@ -261,7 +302,7 @@ function pickFile() {
     try {
       deliver(await f.arrayBuffer());
     } catch (e) {
-      notify('ファイルを読めなかった：' + e);
+      notify(T('ファイルを読めなかった：', 'Could not read the file: ', '无法读取文件：') + e);
     }
   };
   inp.click();
@@ -279,17 +320,17 @@ const env = {
     storePut(slot, rec).catch((e) => {
       if (prev) slotInfo.set(slot, prev);
       else slotInfo.delete(slot);
-      notify('記録できなかった：' + (e && e.name === 'QuotaExceededError' ? '保存領域が足りない' : e));
+      notify(T('記録できなかった：', 'Could not save: ', '无法保存：') + (e && e.name === 'QuotaExceededError' ? T('保存領域が足りない', 'not enough storage', '存储空间不足') : e));
     });
     if (!db && slot !== 0 && !window.__yyMemWarned) {
       window.__yyMemWarned = true;
-      notify('このブラウザでは記録を保存できない。画面を閉じる前にファイルへ書き出してください');
+      notify(T('このブラウザでは記録を保存できない。画面を閉じる前にファイルへ書き出してください', 'This browser cannot keep saves. Export a file before closing the page.', '此浏览器无法保存存档。关闭页面前请导出文件。'));
     }
   },
   js_load: (slot) => {
     storeGet(slot)
-      .then((rec) => (rec ? deliver(rec.data) : notify('この枠には記録がない')))
-      .catch((e) => notify('読み込めなかった：' + e));
+      .then((rec) => (rec ? deliver(rec.data) : notify(T('この枠には記録がない', 'This slot is empty', '此栏位没有存档'))))
+      .catch((e) => notify(T('読み込めなかった：', 'Could not load: ', '无法读取：') + e));
   },
   js_slot_info: (slot, out, cap) => {
     const info = slotInfo.get(slot);
@@ -302,8 +343,8 @@ const env = {
   },
   js_export: (slot) => {
     storeGet(slot)
-      .then((rec) => (rec ? download(rec, slot) : notify('この枠には記録がない')))
-      .catch((e) => notify('書き出せなかった：' + e));
+      .then((rec) => (rec ? download(rec, slot) : notify(T('この枠には記録がない', 'This slot is empty', '此栏位没有存档'))))
+      .catch((e) => notify(T('書き出せなかった：', 'Could not export: ', '无法导出：') + e));
   },
   js_import: () => pickFile(),
 
@@ -451,6 +492,19 @@ const env = {
     ctx.globalAlpha = 1;
   },
 
+  js_lang_get: () => curLang,
+  js_lang_save: (l) => {
+    try {
+      localStorage.setItem(LANG_KEY, LANG_CODES[l] || 'ja');
+    } catch {}
+  },
+  js_font_lang: (l) => {
+    setLang(l);
+    clearTextCaches();
+    // その言語の書体が届いたら測り直す
+    document.fonts.load(`400 14px ${FAMILY}`, '春秋战国 Warring').then(clearTextCaches, () => {});
+  },
+
   js_fullscreen_toggle: () => {
     if (document.fullscreenElement) document.exitFullscreen?.();
     else document.documentElement.requestFullscreen?.().catch(() => {});
@@ -481,7 +535,7 @@ function showError(s) {
   loadingMsg.innerHTML = '';
   const e = document.createElement('div');
   e.className = 'err';
-  e.textContent = 'エラーが発生しました：\n' + s;
+  e.textContent = T('エラーが発生しました：', 'An error occurred:', '发生错误：') + '\n' + s;
   loadingMsg.appendChild(e);
 }
 
@@ -701,6 +755,7 @@ async function loadWasm() {
 }
 
 async function main() {
+  loadingMsg.textContent = T('読み込み中…', 'Loading…', '加载中…');
   // 日本語の書体を待つ（最大3秒）
   const fontWait = Promise.race([
     Promise.all([document.fonts.load(`400 14px ${FAMILY}`, '春秋'), document.fonts.load(`700 14px ${FAMILY}`, '春秋')]),
@@ -710,7 +765,7 @@ async function main() {
   wasm = exports;
   document.fonts.addEventListener?.('loadingdone', clearTextCaches);
   fit();
-  loadingMsg.textContent = '天下を生成中…';
+  loadingMsg.textContent = T('天下を生成中…', 'Creating the world…', '正在生成天下…');
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   wasm.yy_init(pw, ph);
   bindInput();
