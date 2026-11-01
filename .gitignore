@@ -1,4 +1,4 @@
-node_modules
-dist
-.sim
+/target
+/dist
+*.bmp
 .wrangler

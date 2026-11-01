@@ -1,0 +1,20 @@
+[package]
+name = "yyempire"
+version = "0.1.0"
+edition = "2021"
+description = "春秋戦国リアルタイムストラテジー（Rust → WebAssembly、ブラウザで動作）"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false

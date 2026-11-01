@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="春秋戦国 — 中華統一への道。古代中国の550年を舞台にしたリアルタイムストラテジー（ブラウザ版）" />
+    <title>春秋戦国 — 中華統一への道</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%238b1a1a'/><text x='32' y='46' font-size='40' text-anchor='middle' fill='%23f5e6a8'>覇</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet" />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #120f0c; }
+      canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+      #ui { touch-action: none; outline: none; }
+      #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        color: #e8d8b0; font: 18px "Yu Gothic UI", "Noto Sans JP", sans-serif; background: #120f0c; gap: 12px; }
+      #loading h1 { margin: 0; font-size: 40px; letter-spacing: 0.3em; color: #d4a246; }
+      #loading.hidden { display: none; }
+      #loading .err { color: #ff8a7a; max-width: 80vw; white-space: pre-wrap; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+    <canvas id="ui" tabindex="0"></canvas>
+    <div id="loading"><h1>春秋戦国</h1><div id="loading-msg">読み込み中…</div></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
