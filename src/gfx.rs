@@ -38,6 +38,8 @@ pub enum Font {
     Big,
     BigCenter,
     Title,
+    /// 題字（Title が扁額に収まらないとき）
+    TitleMid,
 }
 
 #[derive(Debug)]

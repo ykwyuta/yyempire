@@ -117,6 +117,8 @@ pub struct Art {
     pub hud_stone: Option<ID2D1Bitmap>,
     pub panel_wood: Option<ID2D1Bitmap>,
     pub title_crest: Option<ID2D1Bitmap>,
+    /// 英語の題字用（扁額を広げたもの）
+    pub title_crest_wide: Option<ID2D1Bitmap>,
     pub btn_norm: Option<ID2D1Bitmap>,
     pub btn_hover: Option<ID2D1Bitmap>,
     pub btn_dis: Option<ID2D1Bitmap>,
@@ -552,7 +554,11 @@ fn gen_button_tex(w: usize, h: usize, state: u8) -> Vec<u32> {
 }
 
 /// タイトル画面用の春秋戦国・青銅鼎と戈の紋章バナー
-fn gen_title_crest() -> Vec<u32> {
+/// 題字の飾りの扁額の内寸（幅）。wide は英語の題字用
+pub const TITLE_PLAQUE_W: f32 = 180.0;
+pub const TITLE_PLAQUE_W_WIDE: f32 = 292.0;
+
+fn gen_title_crest(wide: bool) -> Vec<u32> {
     let (w, h) = (340, 124);
     let mut cv = Canvas::new(w, h);
     let (cx, cy) = (w as f32 * 0.5, h as f32 * 0.52);
@@ -588,6 +594,9 @@ fn gen_title_crest() -> Vec<u32> {
     cv.poly(&[(cx + 142.0, cy - 42.0), (cx + 110.0, cy - 52.0), (cx + 118.0, cy - 38.0)], shine);
     cv.poly(&[(cx + 134.0, cy - 39.0), (cx + 148.0, cy - 18.0), (cx + 122.0, cy - 30.0)], bronze);
 
+    // 扁額の半幅（内側）。幅広のときは両脇の戦旗・鼎を扁額が覆うので描かない
+    let hw = if wide { TITLE_PLAQUE_W_WIDE * 0.5 } else { TITLE_PLAQUE_W * 0.5 };
+    if !wide {
     // 左右の戦旗（朱塗りの軍旗＋金縁）
     let crimson = [0.68, 0.12, 0.10, 0.95];
     let crimson_hi = [0.85, 0.22, 0.16, 0.95];
@@ -605,11 +614,12 @@ fn gen_title_crest() -> Vec<u32> {
         cv.capsule(ox, cy + 4.0, ox, cy + 10.0, 1.5, gold);
         cv.capsule(ox + 5.0, cy + 4.0, ox + 6.0, cy + 10.0, 1.5, bronze);
     }
+    }
 
     // 中央の黒漆・金縁扁額（題字がくっきり映える台座）
-    cv.round_rect(cx - 96.0, cy - 38.0, cx + 96.0, cy + 42.0, 10.0, [0.07, 0.05, 0.04, 0.94]);
-    cv.round_rect(cx - 93.0, cy - 35.0, cx + 93.0, cy + 39.0, 8.0, [0.85, 0.70, 0.34, 0.95]);
-    cv.round_rect(cx - 90.0, cy - 32.0, cx + 90.0, cy + 36.0, 6.0, [0.14, 0.09, 0.07, 0.98]);
+    cv.round_rect(cx - hw - 6.0, cy - 38.0, cx + hw + 6.0, cy + 42.0, 10.0, [0.07, 0.05, 0.04, 0.94]);
+    cv.round_rect(cx - hw - 3.0, cy - 35.0, cx + hw + 3.0, cy + 39.0, 8.0, [0.85, 0.70, 0.34, 0.95]);
+    cv.round_rect(cx - hw, cy - 32.0, cx + hw, cy + 36.0, 6.0, [0.14, 0.09, 0.07, 0.98]);
     // 扁額上部の宝珠・龍紋クレスト
     cv.circle(cx, cy - 36.0, 9.0, gold);
     cv.circle(cx, cy - 36.0, 5.5, [0.28, 0.72, 0.56, 1.0]);
@@ -913,6 +923,7 @@ impl Art {
             hud_stone: None,
             panel_wood: None,
             title_crest: None,
+            title_crest_wide: None,
             btn_norm: None,
             btn_hover: None,
             btn_dis: None,
@@ -942,7 +953,8 @@ impl Art {
         self.gen = gfx.d2d_gen;
         self.hud_stone = gfx.create_bitmap(256, 128, &gen_hud_stone(256, 128));
         self.panel_wood = gfx.create_bitmap(256, 128, &gen_panel_wood(256, 128));
-        self.title_crest = gfx.create_bitmap(340, 124, &gen_title_crest());
+        self.title_crest = gfx.create_bitmap(340, 124, &gen_title_crest(false));
+        self.title_crest_wide = gfx.create_bitmap(340, 124, &gen_title_crest(true));
         self.btn_norm = gfx.create_bitmap(128, 48, &gen_button_tex(128, 48, 0));
         self.btn_hover = gfx.create_bitmap(128, 48, &gen_button_tex(128, 48, 1));
         self.btn_dis = gfx.create_bitmap(128, 48, &gen_button_tex(128, 48, 2));

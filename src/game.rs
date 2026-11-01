@@ -2828,10 +2828,17 @@ impl Game {
         let px = w - 380.0;
         self.art.draw_stone_panel(&self.gfx, px, 0.0, w, h);
         self.art.draw_corner_ornaments(&self.gfx, px + 4.0, 4.0, w - 4.0, h - 4.0, 18.0);
-        if let Some(crest) = &self.art.title_crest {
+        // 英語の題字は長いので、扁額を広げた飾りを使う
+        let wide = crate::lang::lang() == crate::lang::Lang::En;
+        let crest = if wide { &self.art.title_crest_wide } else { &self.art.title_crest };
+        if let Some(crest) = crest {
             self.gfx.draw_bitmap(crest, px + 20.0, 10.0, w - 20.0, 126.0);
         }
-        self.gfx.text_shadow(t!("春秋戦国", "Warring States", "春秋战国"), px, 19.0, 380.0, 56.0, Font::Title, [1.0, 0.86, 0.42, 1.0]);
+        let title = t!("春秋戦国", "Warring States", "春秋战国");
+        let plaque = if wide { crate::art::TITLE_PLAQUE_W_WIDE } else { crate::art::TITLE_PLAQUE_W };
+        // 扁額（両端に少し余白）に収まらなければ一回り小さい書体で書く
+        let tf = if self.gfx.measure(title, Font::Title) <= plaque - 8.0 { Font::Title } else { Font::TitleMid };
+        self.gfx.text_shadow(title, px, 19.0, 380.0, 56.0, tf, [1.0, 0.86, 0.42, 1.0]);
         self.gfx.text_shadow(t!("— 中華統一への道 —", "— The Road to Unification —", "— 中华统一之路 —"), px, 76.0, 380.0, 28.0, Font::BigCenter, [0.96, 0.90, 0.78, 1.0]);
 
         self.art.draw_inset_box(&self.gfx, px + 18.0, 132.0, w - 18.0, 306.0);
