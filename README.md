@@ -3,6 +3,7 @@
 Rust で作った Age of Empires 風のリアルタイムストラテジーの**ブラウザ版**です。
 デスクトップ版（[ykwyuta/yyempire-win](https://github.com/ykwyuta/yyempire-win)、Direct3D11 / Direct2D）のゲーム本体（シミュレーション・AI・UI・史実イベント・素材）を
 そのまま WebAssembly にコンパイルし、描画層だけを WebGL2 と Canvas2D に置き換えています。外部クレートは使っていません。
+
 静的サイトとして Cloudflare（Workers の静的アセット／Pages）で公開できます。
 
 **ドキュメント**：紹介とユーザーガイド（[日本語](docs/ja/introduction.md)・[English](docs/en/introduction.md)・[中文](docs/zh/introduction.md)）。一覧は [docs/](docs/README.md)。
