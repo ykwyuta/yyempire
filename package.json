@@ -1,0 +1,10 @@
+{
+  "name": "yyempire",
+  "private": true,
+  "version": "0.2.0",
+  "description": "春秋戦国 — 中華統一への道（Rust → WebAssembly のブラウザ版）",
+  "scripts": {
+    "build": "bash build.sh",
+    "deploy": "bash build.sh && npx wrangler deploy"
+  }
+}

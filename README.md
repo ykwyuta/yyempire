@@ -23,7 +23,7 @@ cd dist && python3 -m http.server 8000
 ### Cloudflare への公開
 
 - **Workers（静的アセット）**：`bash build.sh && npx wrangler deploy`（設定は `wrangler.toml`）
-- **Pages**：リポジトリを接続し、ビルドコマンド `bash build.sh`、出力ディレクトリ `dist` を指定する（ビルド時に Rust を自動で導入する）
+- **Pages／Workers Builds（Git 連携）**：ビルドコマンド `npm run build`（中身は `bash build.sh`）、出力ディレクトリ `dist`。ビルド時に Rust を自動で導入する
 
 `dist/` は `index.html`・`main.js`・`yyempire.wasm` の3ファイルだけで、画像などの素材は wasm に埋め込まれている。
 
