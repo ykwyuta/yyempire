@@ -1,6 +1,6 @@
 //! 記録（セーブ・ロード）：画面・自動記録・ファイルへの書き出しと読み込み
 //!
-//! 記録はブラウザ（IndexedDB）に保存する。枠 0 は自動記録（10年ごと）、1〜3 は手動の記録。
+//! 記録の置き場所は platform が決める（Windows 版は %APPDATA% のファイル）。枠 0 は自動記録（10年ごと）、1〜3 は手動の記録。
 
 use super::*;
 use crate::platform;
@@ -226,7 +226,7 @@ impl Game {
         self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + pw - 3.0, y0 + ph - 3.0, 16.0);
         self.gfx.text_shadow("記録", x0 + 24.0, y0 + 10.0, 120.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
         self.gfx.text(
-            "記録はこのブラウザに保存される（サイトのデータを消すと失われる）。別の端末へ移すときや控えには、書き出したファイルを読み込む",
+            platform::STORAGE_NOTE,
             x0 + 90.0,
             y0 + 14.0,
             pw - 200.0,
