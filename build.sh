@@ -20,6 +20,7 @@ cargo build --release --target wasm32-unknown-unknown
 rm -rf dist
 mkdir -p dist
 cp web/index.html web/main.js dist/
+cp assets/app_icon.ico dist/favicon.ico
 cp target/wasm32-unknown-unknown/release/yyempire.wasm dist/
 # wasm-opt があればさらに小さくする（任意）
 if command -v wasm-opt >/dev/null 2>&1; then

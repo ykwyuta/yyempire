@@ -89,6 +89,8 @@ enum Act {
     Help,
     War(usize),
     Peace(usize),
+    /// 和睦の申し入れへの返答（true=受諾）
+    PeaceAnswer(bool),
     Start,
     PickNation(usize),
     Home,
@@ -624,6 +626,9 @@ impl Game {
         if self.show_diplo || self.show_help || self.show_chron || self.show_market || self.show_summon || self.show_save || self.world.game_over.is_some() {
             return true;
         }
+        if self.peace_pending() {
+            return true;
+        }
         y < TOP_H || y > self.gfx.height as f32 - BOT_H
     }
 
@@ -653,6 +658,11 @@ impl Game {
             self.last_orders = self.world.player_orders;
             self.cmd_pause = false;
         }
+    }
+
+    /// プレイヤーの返答を待つ和睦の申し入れがあるか（返答するまで時間を止める）
+    fn peace_pending(&self) -> bool {
+        self.screen == Screen::Playing && self.world.game_over.is_none() && !self.world.peace_asks.is_empty()
     }
 
     /// 時間を止めているか（部隊の選択中・範囲選択のドラッグ中）
@@ -687,13 +697,19 @@ impl Game {
         if self.screen == Screen::Playing {
             self.scroll(dt, focused);
             self.update_cmd_pause();
-            if !self.paused && !self.cmd_hold() && self.world.game_over.is_none() && !self.show_help {
+            self.world.prune_peace_asks();
+            if !self.paused && !self.cmd_hold() && self.world.game_over.is_none() && !self.show_help && !self.peace_pending() {
                 self.acc += dt * self.speed as f32;
                 let mut steps = 0;
                 while self.acc >= DT && steps < 16 {
                     self.world.step();
                     self.acc -= DT;
                     steps += 1;
+                    // 和睦の申し入れが届いたら、返答するまで時間を止める
+                    if self.peace_pending() {
+                        self.acc = 0.0;
+                        break;
+                    }
                 }
                 if steps >= 16 {
                     self.acc = 0.0;
@@ -756,6 +772,39 @@ impl Game {
                     // 撮影用：指定の年（紀元前）から始める（YY_YEAR=222 など）
                     if let Some(y) = std::env::var("YY_YEAR").ok().and_then(|v| v.parse::<f32>().ok()) {
                         self.world.years = START_BC - y;
+                    }
+                    // 撮影用：指定の国と交戦させ、和睦を申し入れさせる（YY_PEACE=国番号）
+                    if let Some(o) = std::env::var("YY_PEACE").ok().and_then(|v| v.parse::<usize>().ok()) {
+                        let pl = self.world.player;
+                        self.world.declare_war(pl, o, true);
+                        self.world.war_start[pl][o] -= 12.0;
+                        self.world.propose_peace(o, pl, 8.0, "連合の解散");
+                    }
+                    // 撮影用：民を1人選び、都の近くに田を3つ予約させる（YY_QUEUE=1）
+                    if std::env::var("YY_QUEUE").is_ok() {
+                        let pl = self.world.player;
+                        let home = self.world.nations[pl].home;
+                        let wk = (0..self.world.units.len()).find(|&i| self.world.units[i].alive && self.world.units[i].nation as usize == pl && self.world.units[i].kind == UnitKind::Worker);
+                        if let Some(i) = wk {
+                            let h = self.world.uh(i);
+                            let mut spots: Vec<(i32, i32)> = Vec::new();
+                            for r in 4..10 {
+                                for dy in -r..=r {
+                                    for dx in -r..=r {
+                                        let (tx, ty) = (home.x as i32 + dx, home.y as i32 + dy);
+                                        if spots.len() < 3 && self.world.can_place(pl, BKind::Farm, tx, ty).is_ok() && !spots.iter().any(|&(x, y)| (x - tx).abs() < 4 && (y - ty).abs() < 4) {
+                                            spots.push((tx, ty));
+                                        }
+                                    }
+                                }
+                            }
+                            for (tx, ty) in spots {
+                                if let Ok(b) = self.world.place_building(pl, BKind::Farm, tx, ty) {
+                                    self.world.queue_build(&[h], b);
+                                }
+                            }
+                            self.set_sel(vec![h]);
+                        }
                     }
                     self.speed = std::env::var("YY_SPEED").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
                     self.zoom = z;
@@ -915,8 +964,10 @@ impl Game {
                         }
                         match self.mode {
                             Mode::Place(k) => {
-                                self.try_place(k);
-                                if !self.keys[VK_SHIFT as usize] {
+                                // Ctrl を押しながら置くと建設の予約（続けて置ける）
+                                let queue = self.keys[VK_CONTROL as usize];
+                                self.try_place(k, queue);
+                                if !self.keys[VK_SHIFT as usize] && !queue {
                                     self.mode = Mode::Normal;
                                 }
                             }
@@ -1619,13 +1670,18 @@ impl Game {
         ((p.x - 0.5).round() as i32, (p.y - 0.5).round() as i32)
     }
 
-    fn try_place(&mut self, k: BKind) {
+    /// 建物を置く。queue なら建設の予約（選んだ民は今の建設を終えてから取りかかる）
+    fn try_place(&mut self, k: BKind, queue: bool) {
         let (tx, ty) = self.placement_tile();
         let pl = self.world.player;
         match self.world.place_building(pl, k, tx, ty) {
             Ok(bh) => {
                 let ws: Vec<Handle> = self.own_sel().into_iter().filter(|&h| self.world.unit(h).map_or(false, |u| u.kind == UnitKind::Worker)).collect();
-                self.world.order_build(&ws, bh);
+                if queue {
+                    self.world.queue_build(&ws, bh);
+                } else {
+                    self.world.order_build(&ws, bh);
+                }
             }
             Err(e) => self.notice(e),
         }
@@ -1764,6 +1820,7 @@ impl Game {
                         u.order = Order::Idle;
                         u.resume = None;
                         u.path.clear();
+                        u.build_queue.clear();
                     }
                 }
             }
@@ -1963,6 +2020,7 @@ impl Game {
                     self.notice(&t);
                 }
             }
+            Act::PeaceAnswer(accept) => self.world.answer_peace(accept),
             Act::Home => {
                 if let Some(c) = self.world.nations[pl].capital.and_then(|h| self.world.bld(h)) {
                     self.cam = c.center();
@@ -2020,6 +2078,7 @@ impl Game {
             self.render_world_labels();
             if self.screen == Screen::Playing {
                 self.render_hero_labels();
+                self.render_build_queue();
             }
             if self.screen == Screen::Title {
                 self.render_title();
@@ -2045,6 +2104,9 @@ impl Game {
                 }
                 if self.show_save {
                     self.render_save();
+                }
+                if self.peace_pending() {
+                    self.render_peace_ask();
                 }
                 if self.world.game_over.is_some() {
                     self.render_gameover();
@@ -2205,6 +2267,38 @@ impl Game {
         }
     }
 
+    /// 選んだ民の建設の順番（建設中＝1、予約＝2, 3, …）を建設地に示す
+    fn render_build_queue(&mut self) {
+        let pl = self.world.player;
+        let mut order: Vec<(Handle, usize)> = Vec::new();
+        for h in self.sel.iter() {
+            let Some(u) = self.world.unit(*h) else { continue };
+            if u.nation as usize != pl || u.kind != UnitKind::Worker || u.build_queue.is_empty() {
+                continue;
+            }
+            let cur = if let Order::Build(b) = u.order { Some(b) } else { None };
+            for (k, &b) in cur.iter().chain(u.build_queue.iter()).enumerate() {
+                match order.iter_mut().find(|x| x.0 == b) {
+                    Some(x) => x.1 = x.1.min(k + 1),
+                    None => order.push((b, k + 1)),
+                }
+            }
+        }
+        for (b, k) in order {
+            let Some(bd) = self.world.bld(b) else { continue };
+            if bd.done() {
+                continue;
+            }
+            let (sx, sy) = self.world_to_screen(bd.center());
+            let r = 11.0;
+            self.gfx.fill_rect(sx - r, sy - r - 18.0, sx + r, sy + r - 18.0, [0.12, 0.10, 0.06, 0.85]);
+            self.gfx.fill_rect(sx - r, sy + r - 20.0, sx + r, sy + r - 18.0, [1.0, 0.8, 0.35, 1.0]);
+            let s = format!("{}", k);
+            let tw = self.gfx.measure(&s, Font::Normal);
+            self.gfx.text(&s, sx - tw / 2.0, sy - r - 18.0, tw + 4.0, 2.0 * r, Font::Normal, [1.0, 0.88, 0.5, 1.0]);
+        }
+    }
+
     fn render_world_labels(&mut self) {
         let z = self.zoom;
         let (w, h) = (self.gfx.width as f32, self.gfx.height as f32);
@@ -2337,6 +2431,7 @@ impl Game {
                     BKind::Town => if z < 5.5 { 1.75 } else { 1.38 },
                     BKind::Barracks => 1.25,
                     BKind::Farm => 1.16,
+                    BKind::Fort => 1.3,
                 };
                 let r = (z * mult).clamp(9.0, 68.0);
                 let sel = self.sel_b == Some(self.world.bh(bi));
@@ -2588,6 +2683,7 @@ impl Game {
             Act::Place(BKind::Barracks) => Some(CmdIcon::Barracks),
             Act::Place(BKind::Town) => Some(CmdIcon::Town),
             Act::Place(BKind::Capital) => Some(CmdIcon::Capital),
+            Act::Place(BKind::Fort) => Some(CmdIcon::Fort),
             Act::Upgrade | Act::AllWorkersUpgrade | Act::AllArmyUpgrade => Some(CmdIcon::Upgrade),
             Act::Convert => Some(CmdIcon::Convert),
             Act::Stop => Some(CmdIcon::Stop),
@@ -3301,6 +3397,7 @@ impl Game {
                     BKind::Town => "領土を広げ、民を訓練し、資源の集積地となる。城邑が増えるほど人口上限が上がる。",
                     BKind::Barracks => "戈兵・弩兵・戦車（騎兵）を訓練する。",
                     BKind::Farm => "民が耕すと糧を産む。枯れることはない。",
+                    BKind::Fort => "近づく敵兵を射る（射程9）。数は城邑の数で決まる上限まで。",
                 }
             };
             let queue: Vec<(UnitKind, f32)> = b.queue.iter().enumerate().map(|(i, k)| (*k, if i == 0 { b.queue_t / k.train_time() } else { 0.0 })).collect();
@@ -3428,7 +3525,7 @@ impl Game {
             let up_cost = self.world.upgrade_cost(u0);
             let label = if any_mil && !any_worker { "訓練" } else if any_worker && !any_mil { "教化" } else { "鍛錬" };
             let (x0, y0, x1, y1) = pos(i);
-            self.add_button(x0, y0, x1, y1, label, &Self::cost_str(up_cost), 'T' as u32, true, Act::Upgrade, "選択部隊の能力を +0.5 高める（自国領内のみ）。兵は戦闘力と兵力、民は採集量が上がる。費用は現在の能力に比例。");
+            self.add_button(x0, y0, x1, y1, label, &Self::cost_str(up_cost), 'T' as u32, true, Act::Upgrade, "選択部隊の能力を +0.5 高める（自国領内のみ）。兵は戦闘力と兵力、民は採集量が上がる。費用は現在の能力に比例し、糧・木・銅のうち蓄えの多いものから優先して払う。");
             i += 1;
             let (x0, y0, x1, y1) = pos(i);
             let (cl, ct) = if any_mil && !any_worker {
@@ -3441,7 +3538,20 @@ impl Game {
             self.add_button(x0, y0, x1, y1, cl, "能力×2/3", 'C' as u32, true, Act::Convert, ct);
             i += 1;
             let (x0, y0, x1, y1) = pos(i);
-            self.add_button(x0, y0, x1, y1, "停止", "", 'S' as u32, true, Act::Stop, "選択中の部隊を停止して待機させる。");
+            if any_worker && !any_mil {
+                // 民だけを選んでいるときは、停止の代わりに要塞
+                let n = &self.world.nations[pl];
+                let (nf, cap) = (self.world.fort_count(pl), n.fort_cap());
+                let c = BKind::Fort.cost();
+                let tip = format!(
+                    "要塞：近づく敵兵を射る（射程{:.0}）。自国領内に建設。数は城邑2つごとに1つ、最大6まで（いま{}／{}）。余った資源の使い道に。",
+                    FORT_RANGE, nf, cap
+                );
+                let lbl = format!("要塞 {}/{}", nf, cap);
+                self.add_button(x0, y0, x1, y1, &lbl, &Self::cost_str(c), 'R' as u32, afford(c) && nf < cap, Act::Place(BKind::Fort), &tip);
+            } else {
+                self.add_button(x0, y0, x1, y1, "停止", "", 'S' as u32, true, Act::Stop, "選択中の部隊を停止して待機させる。");
+            }
             i += 1;
 
             if any_worker && !any_mil {
@@ -3500,7 +3610,7 @@ impl Game {
                         (UnitKind::Archer, 'W', "弩兵：遠距離攻撃。歩兵に強い。"),
                         (UnitKind::Chariot, 'E', if era == Era::Spring { "戦車：高速。弩兵に強い。" } else { "騎兵：高速。弩兵に強い。" }),
                     ],
-                    BKind::Farm => vec![],
+                    BKind::Farm | BKind::Fort => vec![],
                 };
                 for (k, key, tip) in list {
                     let (x0, y0, x1, y1) = pos(i);
@@ -3626,6 +3736,50 @@ impl Game {
         }
     }
 
+    /// 和睦の申し入れ：受けるか退けるかを選ぶ（返答するまで時間は止まる）
+    fn render_peace_ask(&mut self) {
+        let Some(q) = self.world.peace_asks.front().cloned() else { return };
+        let (w, h) = (self.gfx.width as f32, self.gfx.height as f32);
+        let pl = self.world.player;
+        let o = q.from;
+        let pw = 520.0f32.min(w - 20.0);
+        let ph = 250.0;
+        let x0 = (w - pw) / 2.0;
+        let y0 = (h - ph) / 2.0 - 40.0;
+        self.gfx.fill_rect(0.0, 0.0, w, h, [0.0, 0.0, 0.0, 0.35]);
+        self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + pw, y0 + ph);
+        self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + pw - 3.0, y0 + ph - 3.0, 16.0);
+        if let Some(ic) = &self.art.cmd_icons[CmdIcon::Diplo as usize] {
+            self.gfx.draw_bitmap(ic, x0 + 16.0, y0 + 8.0, x0 + 48.0, y0 + 40.0);
+        }
+        self.gfx.text_shadow("和睦の申し入れ", x0 + 56.0, y0 + 10.0, 260.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
+        let rest = self.world.peace_asks.len();
+        if rest > 1 {
+            let s = format!("ほか{}件", rest - 1);
+            self.gfx.text(&s, x0 + pw - 110.0, y0 + 18.0, 96.0, 20.0, Font::Small, [0.8, 0.78, 0.7, 1.0]);
+        }
+        self.art.draw_inset_box(&self.gfx, x0 + 12.0, y0 + 48.0, x0 + pw - 12.0, y0 + ph - 62.0);
+        let n = &self.world.nations[o];
+        self.gfx.fill_rect(x0 + 24.0, y0 + 62.0, x0 + 40.0, y0 + 78.0, c4(n.color, 1.0));
+        let s = format!("{} が和睦を申し入れてきた（{}）", n.name, q.why);
+        self.gfx.text(&s, x0 + 48.0, y0 + 58.0, pw - 70.0, 24.0, Font::Normal, [0.95, 0.92, 0.85, 1.0]);
+        let dur = (self.world.years - self.world.war_start[pl][o]).max(0.0);
+        let s = format!(
+            "交戦{}年　国力：自国 {:.0}　{} {:.0}\n受諾すると{}年間休戦し、その間は互いに宣戦できない。\n退けると交戦を続ける。",
+            dur.floor() as i32,
+            self.world.nations[pl].strength,
+            n.name,
+            n.strength,
+            q.years as i32
+        );
+        self.gfx.text(&s, x0 + 24.0, y0 + 88.0, pw - 48.0, 96.0, Font::Small, [0.82, 0.8, 0.74, 1.0]);
+        let bw = (pw - 60.0) / 2.0;
+        let by = y0 + ph - 52.0;
+        let lbl = format!("受諾（休戦{}年）", q.years as i32);
+        self.add_button(x0 + 20.0, by, x0 + 20.0 + bw, by + 38.0, &lbl, "", 'Y' as u32, true, Act::PeaceAnswer(true), "和睦して休戦する（Y）");
+        self.add_button(x0 + 40.0 + bw, by, x0 + 40.0 + 2.0 * bw, by + 38.0, "拒否（交戦を続ける）", "", 'N' as u32, true, Act::PeaceAnswer(false), "申し入れを退けて戦を続ける（N）");
+    }
+
     fn render_help(&mut self) {
         let (w, h) = (self.gfx.width as f32, self.gfx.height as f32);
         let pw = 1180.0f32.min(w - 20.0);
@@ -3646,14 +3800,16 @@ impl Game {
 
 ■ 資源　糧（田を耕す）・木（森を伐採）・銅（銅山を採掘）。民が集めて都・邑へ運ぶ。城邑からも少しずつ税収がある。
 
-■ ユニット　動かせる数には上限がある（城邑の数で増える）。その代わり「訓練／教化」で一体ごとの能力を高められる（時代ごとに上限あり）。軍事ユニットは存在するだけで糧を消費する（維持費）。糧が尽きると兵は弱っていく。兵を解散して民に、民を徴兵して戈兵にできるが、能力は2/3に目減りする。
+■ ユニット　動かせる数には上限がある（城邑の数で増える）。その代わり「訓練／教化」で一体ごとの能力を高められる（時代ごとに上限あり。費用は糧・木・銅のうち蓄えの多いものから優先して払うので、どの資源も無駄にならない）。軍事ユニットは存在するだけで糧を消費する（維持費）。糧が尽きると兵は弱っていく。兵を解散して民に、民を徴兵して戈兵にできるが、能力は2/3に目減りする。
 　戈兵＞戦車（騎兵）＞弩兵＞戈兵 の相性がある。
 
 ■ 外交　F2で外交画面。宣戦しないと他国を攻撃できない。城邑を攻め落とすと自国のものになる。全ての城邑を失った国は滅亡する。
+■ 和睦の申し入れ　交戦国からの和睦の申し入れ（連合の解散・史実の休戦を含む）には「受諾（Y）」か「拒否（N）」で答える。答えるまで時間は止まる。拒否すれば交戦を続けられる。
 
 ■ 覇者の呼びかけ（春秋）　宣戦や攻略を繰り返すと「諸侯の警戒」が高まり、100に達すると最強国が諸侯に呼びかけ、周辺国が15年間一斉に攻めてくる。
 ■ 合従軍（戦国）　突出して強い国が現れると、周辺国が合従して15年間一斉に攻撃する。
 ■ 三家分晋　戦国時代の到来とともに晋は韓・趙・魏に分かれる。
+■ 要塞　民だけを選ぶと「要塞（R）」で築ける（糧300・木400・銅300）。近づく敵兵を射る（射程9）。数は「1＋城邑の数÷2」まで（最大6）。余った資源の使い道に。
 ■ 史実の出来事　史実の年になると、英雄・諸子百家・政治指導者が現れて国を強くし（一定年数、生産や武が上がる）、反乱や簒奪で兵や蓄えを失い君主家（国姓）が変わる。その国が滅んでいれば起こらない。記録と各国の君主家・人物は「史記」（F3、外交画面から）で見られる。
 ■ 上帝降臨　史実で中華が統一された紀元前221年までに天下を統一できなければ、上帝が秦に降臨する（秦が滅んでいても蘇る）。上帝の軍には抗えず、10年のうちに中華は秦に統一され、ゲームは終わる。
 ■ 英霊モード（タイトル画面で選ぶ。既定はオフ）　民を選んで「英霊召喚」（H）を押すと、選んだ民を生贄に捧げて三皇五帝から春秋戦国までの英霊を時代と国を超えて呼べる。英霊の能力は生贄の能力の合計の1.1〜3.0倍（英霊ごとに異なる）。一国が同時に従えられる英霊は一体だけで、同じ英霊は二国に現れない。他国も召喚する。英霊だけが上帝の兵を傷つけられ、英霊の近くの城邑は上帝の軍にも奪われない。上帝降臨から10年後、自国の版図が上帝の秦より広ければ勝利。
@@ -3667,6 +3823,7 @@ impl Game {
 　左クリック：選択　ドラッグ：範囲選択　ダブルクリック：同種を全選択　Shift：追加選択
 　右クリック：移動／攻撃／採集（森・銅山・田）／建設の手伝い　建物選択中の右クリック：集合地点
 　A：進軍（攻撃移動）　S：停止　T：訓練・教化　C：兵⇔民の転換　Q/W/E：建設・訓練
+　Ctrl を押しながら建物を置く：建設の予約（続けて置ける）。選んだ民は今の建設を終えてから、置いた順に建てていく（建設地に順番を表示）
 　Ctrl+数字：部隊登録　数字：部隊呼び出し　.：待機中の民　Home：国都へ
 　ホイール：拡大縮小　中ボタンドラッグ・矢印キー・画面端：スクロール　ミニマップクリック：移動
 　Space：一時停止　＋／－：速度　Esc：取り消し　F5：記録（セーブ・ロード）　F11：全画面　Ctrl＋＋／Ctrl＋−：文字の大きさ";

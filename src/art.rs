@@ -39,6 +39,7 @@ pub enum CmdIcon {
     GatherBronze = 18,
     Defend = 19,
     AllArmy = 20,
+    Fort = 21,
 }
 
 const UNIT_SPRITE_SZ: usize = 160;
@@ -51,11 +52,12 @@ const RAW_UNIT_SPRITES: [&[u8]; 5] = [
 ];
 
 const BLD_SPRITE_SZ: usize = 192;
-const RAW_BLD_SPRITES: [&[u8]; 4] = [
+const RAW_BLD_SPRITES: [&[u8]; 5] = [
     include_bytes!("../assets/map/capital.bgra"),
     include_bytes!("../assets/map/town.bgra"),
     include_bytes!("../assets/map/barracks.bgra"),
     include_bytes!("../assets/map/farm.bgra"),
+    include_bytes!("../assets/map/fort.bgra"),
 ];
 
 const PROP_SPRITE_SZ: usize = 160;
@@ -119,12 +121,12 @@ pub struct Art {
     pub btn_hover: Option<ID2D1Bitmap>,
     pub btn_dis: Option<ID2D1Bitmap>,
     pub res_icons: [Option<ID2D1Bitmap>; 7],
-    pub cmd_icons: [Option<ID2D1Bitmap>; 21],
+    pub cmd_icons: [Option<ID2D1Bitmap>; 22],
     pub unit_badges: [Option<ID2D1Bitmap>; 5],
     pub unit_sprites: [Option<ID2D1Bitmap>; 5],
     pub unit_sprites_flip: [Option<ID2D1Bitmap>; 5],
-    pub bld_sprites: [Option<ID2D1Bitmap>; 4],
-    pub bld_sprites_fog: [Option<ID2D1Bitmap>; 4],
+    pub bld_sprites: [Option<ID2D1Bitmap>; 5],
+    pub bld_sprites_fog: [Option<ID2D1Bitmap>; 5],
     pub prop_sprites: [Option<ID2D1Bitmap>; 3],
     pub prop_sprites_flip: [Option<ID2D1Bitmap>; 3],
     pub prop_sprites_fog: [Option<ID2D1Bitmap>; 3],
@@ -399,7 +401,7 @@ impl Canvas {
         dst: (f32, f32, f32, f32),
         src_uv: (f32, f32, f32, f32),
     ) {
-        self.blit_raw_sprite(RAW_BLD_SPRITES[bld_idx.min(3)], BLD_SPRITE_SZ, dst, src_uv, None);
+        self.blit_raw_sprite(RAW_BLD_SPRITES[bld_idx.min(4)], BLD_SPRITE_SZ, dst, src_uv, None);
     }
 
     fn blit_prop_sprite(
@@ -781,6 +783,10 @@ fn gen_cmd_icon(kind: CmdIcon) -> Vec<u32> {
             icon_backdrop(&mut cv, [0.22, 0.36, 0.52], [0.18, 0.24, 0.16], [0.58, 0.66, 0.52]);
             cv.blit_bld_sprite(1, (3.0, 3.0, 61.0, 61.0), (0.0, 0.0, 1.0, 1.0));
         }
+        CmdIcon::Fort => {
+            icon_backdrop(&mut cv, [0.46, 0.34, 0.20], [0.20, 0.14, 0.10], [0.85, 0.62, 0.32]);
+            cv.blit_bld_sprite(4, (2.0, 2.0, 62.0, 62.0), (0.0, 0.0, 1.0, 1.0));
+        }
         CmdIcon::Capital => {
             icon_backdrop(&mut cv, [0.48, 0.32, 0.14], [0.22, 0.12, 0.08], [0.98, 0.82, 0.38]);
             cv.blit_bld_sprite(0, (3.0, 3.0, 61.0, 61.0), (0.0, 0.0, 1.0, 1.0));
@@ -1007,6 +1013,7 @@ impl Art {
             CmdIcon::GatherBronze,
             CmdIcon::Defend,
             CmdIcon::AllArmy,
+            CmdIcon::Fort,
         ];
         for c in cmd_all {
             self.cmd_icons[c as usize] = gfx.create_bitmap(64, 64, &gen_cmd_icon(c));
@@ -1018,7 +1025,7 @@ impl Art {
             self.unit_sprites_flip[b] = gfx.create_bitmap(sz, sz, &load_unit_sprite_bgra(b, true));
         }
         let bsz = BLD_SPRITE_SZ as u32;
-        for b in 0..4 {
+        for b in 0..5 {
             self.bld_sprites[b] = gfx.create_bitmap(bsz, bsz, &load_raw_sprite_bgra(RAW_BLD_SPRITES[b], BLD_SPRITE_SZ, false, 1.0));
             self.bld_sprites_fog[b] = gfx.create_bitmap(bsz, bsz, &load_raw_sprite_bgra(RAW_BLD_SPRITES[b], BLD_SPRITE_SZ, false, 0.52));
         }
@@ -1086,6 +1093,7 @@ impl Art {
             BKind::Town => 1,
             BKind::Barracks => 2,
             BKind::Farm => 3,
+            BKind::Fort => 4,
         };
         if fogged {
             self.bld_sprites_fog[idx].as_ref()
@@ -1178,6 +1186,7 @@ impl Art {
             BKind::Barracks => CmdIcon::Barracks,
             BKind::Town => CmdIcon::Town,
             BKind::Capital => CmdIcon::Capital,
+            BKind::Fort => CmdIcon::Fort,
         };
         self.cmd_icons[idx as usize].as_ref()
     }
@@ -1498,7 +1507,7 @@ pub fn draw_world_building(g: &mut Gfx, b: &crate::world::Building, nc: [f32; 3]
                 g.rect(x0 + 0.06, y0 + 0.06, x1 - 0.06, y1 - 0.06, [0.28, 0.22, 0.13, 0.45 * alpha]);
                 g.rect_outline(x0 + 0.04, y0 + 0.04, x1 - 0.04, y1 - 0.04, (1.6 * px).max(0.05), c4(nc, 0.72 * alpha));
             }
-            BKind::Barracks => {
+            BKind::Barracks | BKind::Fort => {
                 g.circle(c.x + 0.06, c.y + 0.14, 1.02, 16, [0.0, 0.0, 0.0, 0.34 * alpha]);
                 g.rect_outline(x0 + 0.08, y0 + 0.08, x1 - 0.08, y1 - 0.08, (1.8 * px).max(0.06), c4(nc, 0.78 * alpha));
             }

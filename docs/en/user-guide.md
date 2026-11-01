@@ -106,6 +106,7 @@ Click 「この国で覇業を開始」 to start. New players should choose 「�
 | Drag | Box select |
 | Double click | Select all units of the same type |
 | Shift + click | Add to the selection |
+| Ctrl + click (placing a building) | Reserve the build and keep placing |
 | Right click | Move, attack, gather (forest, mine, field), help build |
 | Right click with a building selected | Set its rally point |
 | Mouse wheel | Zoom |
@@ -130,8 +131,9 @@ There are three **resources**.
 | Town (邑) | 100 / 250 / 80 | Expands territory and raises worker and soldier limits; trains workers. Must be at least 9 tiles from any city and within 26 of one of yours |
 | Barracks (兵営) | 0 / 150 / 30 | Trains soldiers |
 | Field (田) | 0 / 60 / 0 | Produces grain when a worker farms it |
+| Fort (要塞) | 300 / 400 / 300 | Shoots enemy soldiers that come near (range 9, stronger than a city). You may have 1 + cities ÷ 2 of them (6 at most) |
 
-Buildings go inside your own territory. Select a worker, press Q, W or E in the command panel (field, barracks, town), then click where to build.
+Buildings go inside your own territory. Select a worker, press Q, W or E in the command panel (field, barracks, town), then click where to build. Hold **Ctrl** while placing to reserve builds and keep placing more. The selected workers finish their current build, then build the reserved sites in the order you placed them (each site shows its number). Giving them another order, such as a move, cancels the reservations. With only workers selected, R builds a fort (the button takes the place of Stop). Forts are a good use for surplus resources.
 
 **Worker and soldier limits** are each 4 + 3 × your number of cities (25 at most). More towns mean a bigger state.
 
@@ -151,7 +153,7 @@ Handy commands:
 
 Counters run in a circle: **halberdier > chariot (cavalry) > crossbowman > halberdier**.
 
-- **Train / Educate (T, 訓練・教化)**: raises one unit's power by +0.5 inside your territory. The cost grows with current power. Power is capped at 4.0 in the Spring and Autumn period and 6.0 in the Warring States.
+- **Train / Educate (T, 訓練・教化)**: raises one unit's power by +0.5 inside your territory. The cost grows with current power (power × 40) and is paid mostly from whichever of food, wood and copper you hold the most of (split in proportion to your stockpiles). Power is capped at 4.0 in the Spring and Autumn period and 6.0 in the Warring States.
 - **Convert (C, 兵⇔民)**: disband a soldier into a worker, or draft a worker as a halberdier. Power drops to 2/3.
 - **Upkeep**: every soldier eats 0.07 × power grain per second just by existing. If grain runs out, soldiers weaken.
 - **Attack-move (A, 進軍)**: march and fight any enemies on the way.
@@ -177,7 +179,8 @@ When you select your own units, **time stops**, and 「指揮中」 (Commanding)
 Press **F2** to open Diplomacy (諸侯外交).
 
 - You must **declare war (宣戦)** before you can attack another state.
-- You can **propose peace (和睦)** to a state you are at war with. If they offer peace, click **Accept (受諾)**. A truce follows.
+- You can **propose peace (和睦)** to a state you are at war with. A truce follows.
+- When a state offers you peace (including when a coalition disbands or a historical truce occurs), time stops and you choose: **Accept (受諾, Y)** to make peace, or **Refuse (拒否, N)** to keep fighting. You are never forced into peace in the middle of an attack.
 - States are listed nearest first, with their strength, number of cities and distance.
 
 **The Hegemon's call (Spring and Autumn)**

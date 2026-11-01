@@ -208,7 +208,13 @@ pub enum BKind {
     Town,
     Barracks,
     Farm,
+    /// 要塞：近づく敵兵を射る（数に上限あり）
+    Fort,
 }
+
+/// 要塞の射程・攻撃間隔
+pub const FORT_RANGE: f32 = 9.0;
+pub const FORT_COOLDOWN: f32 = 1.5;
 
 impl BKind {
     pub fn name(self) -> &'static str {
@@ -217,6 +223,7 @@ impl BKind {
             BKind::Town => "邑",
             BKind::Barracks => "兵営",
             BKind::Farm => "田",
+            BKind::Fort => "要塞",
         }
     }
     pub fn cost(self) -> [f32; 3] {
@@ -225,6 +232,7 @@ impl BKind {
             BKind::Town => [100.0, 250.0, 80.0],
             BKind::Barracks => [0.0, 150.0, 30.0],
             BKind::Farm => [0.0, 60.0, 0.0],
+            BKind::Fort => [300.0, 400.0, 300.0],
         }
     }
     pub fn max_hp(self) -> f32 {
@@ -233,6 +241,7 @@ impl BKind {
             BKind::Town => 1600.0,
             BKind::Barracks => 1200.0,
             BKind::Farm => 300.0,
+            BKind::Fort => 2500.0,
         }
     }
     pub fn build_time(self) -> f32 {
@@ -241,6 +250,7 @@ impl BKind {
             BKind::Town => 40.0,
             BKind::Barracks => 20.0,
             BKind::Farm => 8.0,
+            BKind::Fort => 30.0,
         }
     }
     pub fn radius(self) -> i32 {
@@ -328,6 +338,8 @@ pub struct Unit {
     pub divine: bool,
     /// 英霊（HEROES の番号、NONE=英霊ではない）
     pub hero: u8,
+    /// 建設の予約（今の建設を終えたら順に取りかかる）
+    pub build_queue: VecDeque<Handle>,
 }
 
 impl Unit {
@@ -419,6 +431,18 @@ impl Nation {
     pub fn mil_cap(&self) -> u32 {
         (4 + 3 * self.cities).min(25)
     }
+    /// 築ける要塞の数（城邑2つごとに1つ、最大6）
+    pub fn fort_cap(&self) -> u32 {
+        (1 + self.cities / 2).min(6)
+    }
+}
+
+/// プレイヤーへの和睦の申し入れ（受諾か拒否かを選ぶ）
+#[derive(Clone, Debug)]
+pub struct PeaceAsk {
+    pub from: usize,
+    pub years: f32,
+    pub why: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -471,6 +495,10 @@ pub struct World {
     pub war_start: Vec<Vec<f32>>,
     pub truce: Vec<Vec<f32>>,
     pub peace_offer: Vec<bool>,
+    /// 和睦の申し入れを断られた国は、この年まで申し入れない
+    pub offer_cd: Vec<f32>,
+    /// プレイヤーの返答を待つ和睦の申し入れ
+    pub peace_asks: VecDeque<PeaceAsk>,
     pub years: f32,
     pub era: Era,
     pub player: usize,
@@ -534,6 +562,8 @@ impl World {
             war_start: vec![vec![0.0; nn]; nn],
             truce: vec![vec![0.0; nn]; nn],
             peace_offer: vec![false; nn],
+            offer_cd: vec![0.0; nn],
+            peace_asks: VecDeque::new(),
             years: 0.0,
             era: Era::Spring,
             player: 0,
@@ -751,6 +781,7 @@ impl World {
             merc_until: 0.0,
             divine: false,
             hero: NONE,
+            build_queue: VecDeque::new(),
         };
         if let Some(i) = self.free_units.pop() {
             let gen = self.units[i as usize].gen + 1;
@@ -826,9 +857,17 @@ impl World {
                         }
                     }
                 }
+                if kind == BKind::Fort && self.fort_count(nation) >= self.nations[nation].fort_cap() {
+                    return Err("要塞の数が上限に達している（城邑を増やすと上限が上がる）");
+                }
             }
         }
         Ok(())
+    }
+
+    /// 建設中を含む要塞の数
+    pub fn fort_count(&self, nation: usize) -> u32 {
+        self.blds.iter().filter(|b| b.alive && b.nation as usize == nation && b.kind == BKind::Fort).count() as u32
     }
 
     pub fn spawn_building(&mut self, nation: usize, kind: BKind, tx: i32, ty: i32, complete: bool) -> Handle {
@@ -1028,6 +1067,45 @@ impl World {
         }
     }
 
+    /// 和睦を申し入れる。プレイヤーが当事者なら返答を待ち（false）、それ以外は即座に和睦する（true）
+    pub fn propose_peace(&mut self, a: usize, b: usize, truce_years: f32, why: &str) -> bool {
+        let p = self.player;
+        if (a != p && b != p) || self.ai_player {
+            self.make_peace(a, b, truce_years);
+            return true;
+        }
+        let o = if a == p { b } else { a };
+        if !self.war[a][b] || (self.descent.is_some() && o == 2) || self.peace_asks.iter().any(|q| q.from == o) {
+            return false;
+        }
+        let t = format!("{} が和睦を申し入れてきた（{}）", self.nations[o].name, why);
+        self.push_msg(t, [0.7, 0.9, 1.0]);
+        self.peace_asks.push_back(PeaceAsk { from: o, years: truce_years, why: why.to_string() });
+        false
+    }
+
+    /// 返答待ちの申し入れのうち、既に意味のないもの（交戦が終わった・滅んだ）を捨てる
+    pub fn prune_peace_asks(&mut self) {
+        let p = self.player;
+        let (war, nations) = (&self.war, &self.nations);
+        self.peace_asks.retain(|q| q.from != p && nations[q.from].alive && war[p][q.from]);
+    }
+
+    /// 先頭の和睦の申し入れに答える
+    pub fn answer_peace(&mut self, accept: bool) {
+        self.prune_peace_asks();
+        let Some(q) = self.peace_asks.pop_front() else { return };
+        let p = self.player;
+        if accept {
+            self.make_peace(p, q.from, q.years);
+        } else {
+            self.peace_offer[q.from] = false;
+            self.offer_cd[q.from] = self.years + 8.0;
+            let t = format!("{} の和睦の申し入れを退けた（交戦を続ける）", self.nations[q.from].name);
+            self.push_msg(t, [1.0, 0.6, 0.4]);
+        }
+    }
+
     // ------------------------------------------------------------ 領土
     pub fn recompute_territory(&mut self) {
         let n = MAP_W * MAP_H;
@@ -1147,6 +1225,7 @@ impl World {
             if let Some(u) = self.unit_mut(h) {
                 u.order = if attack && u.kind.military() { Order::AttackMove(g) } else { Order::Move(g) };
                 u.resume = None;
+                u.build_queue.clear();
                 u.reset_nav();
             }
         }
@@ -1158,6 +1237,7 @@ impl World {
             if let Some(u) = self.unit_mut(h) {
                 u.order = Order::Attack(t);
                 u.resume = None;
+                u.build_queue.clear();
                 u.reset_nav();
             }
         }
@@ -1169,6 +1249,7 @@ impl World {
             if let Some(u) = self.unit_mut(h) {
                 if u.kind == UnitKind::Worker {
                     u.order = Order::Gather { src, phase: 0 };
+                    u.build_queue.clear();
                     u.reset_nav();
                 }
             }
@@ -1181,10 +1262,49 @@ impl World {
             if let Some(u) = self.unit_mut(h) {
                 if u.kind == UnitKind::Worker {
                     u.order = Order::Build(b);
+                    u.build_queue.clear();
                     u.reset_nav();
                 }
             }
         }
+    }
+
+    /// 建設を予約する：建設中の民は今の建設を終えてから順に取りかかり、それ以外の民はすぐに建て始める
+    pub fn queue_build(&mut self, hs: &[Handle], b: Handle) {
+        self.note_player_order(hs);
+        for &h in hs {
+            let busy = match self.unit(h) {
+                Some(u) if u.kind == UnitKind::Worker => match u.order {
+                    Order::Build(cur) => cur != b && self.bld(cur).map_or(false, |x| !x.done()),
+                    _ => false,
+                },
+                _ => continue,
+            };
+            let u = self.unit_mut(h).unwrap();
+            if busy {
+                if !u.build_queue.contains(&b) {
+                    u.build_queue.push_back(b);
+                }
+            } else {
+                u.order = Order::Build(b);
+                u.build_queue.clear();
+                u.reset_nav();
+            }
+        }
+    }
+
+    /// 予約された次の建設に取りかかる（なければ false）
+    fn next_queued_build(&mut self, i: usize) -> bool {
+        let ni = self.units[i].nation as usize;
+        while let Some(b) = self.units[i].build_queue.pop_front() {
+            if self.bld(b).map_or(false, |x| x.nation as usize == ni && !x.done()) {
+                let u = &mut self.units[i];
+                u.order = Order::Build(b);
+                u.reset_nav();
+                return true;
+            }
+        }
+        false
     }
 
     pub fn try_pay(&mut self, nation: usize, cost: [f32; 3]) -> bool {
@@ -1214,7 +1334,7 @@ impl World {
         match b.kind {
             BKind::Capital | BKind::Town => kind == UnitKind::Worker,
             BKind::Barracks => kind.military(),
-            BKind::Farm => false,
+            BKind::Farm | BKind::Fort => false,
         }
     }
 
@@ -1251,12 +1371,23 @@ impl World {
 
     pub fn upgrade_cost(&self, u: &Unit) -> [f32; 3] {
         let p = u.power;
-        let m = if (u.nation as usize) < NATIONS.len() { self.nations[u.nation as usize].tm.upgrade } else { 1.0 };
-        if u.kind.military() {
-            [(25.0 * p * m).round(), 0.0, (15.0 * p * m).round()]
-        } else {
-            [(25.0 * p * m).round(), (15.0 * p * m).round(), 0.0]
+        let ni = u.nation as usize;
+        let m = if ni < NATIONS.len() { self.nations[ni].tm.upgrade } else { 1.0 };
+        let total = (40.0 * p * m).round();
+        // 蓄えの多い資源から優先して払う（資源の偏りで余らせないため）。蓄えが乏しいときは兵は糧・銅、民は糧・木が基本
+        let base = if u.kind.military() { [25.0, 0.0, 15.0] } else { [25.0, 15.0, 0.0] };
+        let res = if ni < NATIONS.len() { self.nations[ni].res } else { [0.0; 3] };
+        let have = res[0].max(0.0) + res[1].max(0.0) + res[2].max(0.0);
+        let w: [f32; 3] = if have >= total && have > 0.0 { [res[0].max(0.0), res[1].max(0.0), res[2].max(0.0)] } else { base };
+        let ws = w[0] + w[1] + w[2];
+        let mut c = [0.0f32; 3];
+        for k in 0..3 {
+            c[k] = (total * w[k] / ws).floor();
         }
+        // 端数は最も多い資源で払う
+        let big = (0..3).max_by(|&a, &b| w[a].partial_cmp(&w[b]).unwrap()).unwrap();
+        c[big] += total - (c[0] + c[1] + c[2]);
+        c
     }
 
     /// 訓練（兵）・教化（民）：能力を高める
@@ -1761,15 +1892,21 @@ impl World {
                     }
                 }
             }
-            // 城邑の防衛射撃
-            if self.blds[bi].kind.city() {
+            // 城邑・要塞の防衛射撃
+            let fort = self.blds[bi].kind == BKind::Fort;
+            if self.blds[bi].kind.city() || fort {
                 let b = &mut self.blds[bi];
                 b.cooldown -= dt;
                 if b.cooldown <= 0.0 {
                     let (c, ni) = (b.center(), b.nation as usize);
-                    b.cooldown = 2.0;
-                    if let Some(t) = self.nearest_enemy_unit(ni, c, 6.0) {
-                        let dmg = if self.era == Era::Spring { 10.0 } else { 16.0 };
+                    let (range, cd, dmg) = match (fort, self.era == Era::Spring) {
+                        (true, true) => (FORT_RANGE, FORT_COOLDOWN, 14.0),
+                        (true, false) => (FORT_RANGE, FORT_COOLDOWN, 22.0),
+                        (false, true) => (6.0, 2.0, 10.0),
+                        (false, false) => (6.0, 2.0, 16.0),
+                    };
+                    b.cooldown = cd;
+                    if let Some(t) = self.nearest_enemy_unit(ni, c, range) {
                         let tp = self.units[t].pos;
                         self.shots.push(Shot { a: c, b: tp, t: 0.25 });
                         self.damage_unit(t, dmg, None, ni);
@@ -2147,12 +2284,18 @@ impl World {
             Order::Gather { src, phase } => self.update_gather(i, src, phase, dt),
             Order::Build(bh) => {
                 let Some(b) = self.bld(bh) else {
-                    self.units[i].order = Order::Idle;
+                    if !self.next_queued_build(i) {
+                        self.units[i].order = Order::Idle;
+                    }
                     return;
                 };
                 if b.done() || b.nation as usize != ni {
-                    let kind_b = b.kind;
-                    if kind_b == BKind::Farm && b.nation as usize == ni && self.farm_users(bh) == 0 {
+                    let (kind_b, own) = (b.kind, b.nation as usize == ni);
+                    // 予約があれば次の建設へ
+                    if self.next_queued_build(i) {
+                        return;
+                    }
+                    if kind_b == BKind::Farm && own && self.farm_users(bh) == 0 {
                         self.units[i].order = Order::Gather { src: Src::Farm(bh), phase: 0 };
                     } else {
                         self.units[i].order = Order::Idle;
@@ -2204,7 +2347,10 @@ impl World {
                             }
                         });
                         if !reached {
-                            self.units[i].order = Order::Idle;
+                            // 辿り着けなければ次の予約へ
+                            if !self.next_queued_build(i) {
+                                self.units[i].order = Order::Idle;
+                            }
                         }
                     }
                 }
@@ -2383,7 +2529,7 @@ impl World {
             let c = self.coalitions.remove(k);
             for &m in c.members.iter() {
                 if self.nations[m].alive && self.nations[c.target].alive {
-                    self.make_peace(m, c.target, 8.0);
+                    self.propose_peace(m, c.target, 8.0, "連合の解散");
                 }
             }
             let name = if c.kind == CoalKind::Hegemon { "覇者の呼びかけによる討伐" } else { "合従軍" };
@@ -2463,7 +2609,7 @@ impl World {
             for b in a + 1..members.len() {
                 let (ma, mb) = (members[a], members[b]);
                 if self.war[ma][mb] {
-                    self.make_peace(ma, mb, 15.0);
+                    self.propose_peace(ma, mb, 15.0, "連合への参加");
                 }
             }
         }
@@ -2767,6 +2913,145 @@ mod tests {
         assert!(matches!(&w.game_over, Some((false, _))) || !w.nations[4].alive);
     }
 
+    /// 建設の予約：民は今の建設を終えてから、予約した順に建てていく
+    #[test]
+    fn build_queue_in_order() {
+        let mut w = World::new(12345);
+        let n = 4;
+        w.player = n;
+        w.nations[n].res = [99999.0; 3];
+        let home = w.nations[n].home;
+        let mut spots: Vec<(i32, i32)> = Vec::new();
+        for r in 3..10 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (tx, ty) = (home.x as i32 + dx, home.y as i32 + dy);
+                    if spots.len() < 3 && w.can_place(n, BKind::Farm, tx, ty).is_ok() && !spots.iter().any(|&(x, y)| (x - tx).abs() < 3 && (y - ty).abs() < 3) {
+                        spots.push((tx, ty));
+                    }
+                }
+            }
+        }
+        assert_eq!(spots.len(), 3);
+        // 民を1人だけ使う
+        let wk = (0..w.units.len()).find(|&i| w.units[i].alive && w.units[i].nation as usize == n && w.units[i].kind == UnitKind::Worker).unwrap();
+        let h = w.uh(wk);
+        let bs: Vec<Handle> = spots.iter().map(|&(x, y)| w.place_building(n, BKind::Farm, x, y).unwrap()).collect();
+        // 1つ目は即座に、2つ目以降は予約
+        for &b in bs.iter() {
+            w.queue_build(&[h], b);
+        }
+        assert_eq!(w.unit(h).unwrap().order, Order::Build(bs[0]));
+        assert_eq!(w.unit(h).unwrap().build_queue.len(), 2);
+        // 2つ目の建設が始まる前に1つ目が完成している
+        let mut done_order = Vec::new();
+        for _ in 0..(120.0 / DT) as usize {
+            w.step();
+            for (k, &b) in bs.iter().enumerate() {
+                if w.bld(b).map_or(false, |x| x.done()) && !done_order.contains(&k) {
+                    done_order.push(k);
+                }
+            }
+            if done_order.len() == 3 {
+                break;
+            }
+        }
+        assert_eq!(done_order, vec![0, 1, 2]);
+        // ほかの命令を出すと予約は取り消される
+        let more: Vec<Handle> = (0..2).map(|_| bs[0]).collect();
+        w.unit_mut(h).unwrap().build_queue.extend(more);
+        w.order_move(&[h], home, false);
+        assert!(w.unit(h).unwrap().build_queue.is_empty());
+    }
+
+    /// 要塞：数に上限があり、近づく敵兵を射る
+    #[test]
+    fn fort_cap_and_shoots() {
+        let mut w = World::new(12345);
+        let n = 4;
+        w.nations[n].res = [99999.0; 3];
+        let cap = w.nations[n].fort_cap();
+        let home = w.nations[n].home;
+        // 自国領内の空き地に上限まで築く
+        let mut spots = Vec::new();
+        for r in 3..12 {
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let (tx, ty) = (home.x as i32 + dx, home.y as i32 + dy);
+                    if w.can_place(n, BKind::Fort, tx, ty).is_ok() && !spots.iter().any(|&(x, y): &(i32, i32)| (x - tx).abs() < 3 && (y - ty).abs() < 3) {
+                        spots.push((tx, ty));
+                    }
+                }
+            }
+        }
+        assert!(spots.len() > cap as usize);
+        let mut hs = Vec::new();
+        for &(tx, ty) in spots.iter().take(cap as usize) {
+            hs.push(w.place_building(n, BKind::Fort, tx, ty).unwrap());
+        }
+        let (tx, ty) = spots[cap as usize];
+        assert!(w.place_building(n, BKind::Fort, tx, ty).is_err(), "上限を超えて築けてしまう");
+        // 完成した要塞は射程内の敵兵を射る
+        let b = hs[0].idx as usize;
+        w.blds[b].progress = 1.0;
+        w.blds[b].hp = BKind::Fort.max_hp();
+        let c = w.blds[b].center();
+        let e = 5;
+        w.declare_war(n, e, true);
+        let uh = w.spawn_unit(e, UnitKind::Infantry, c + v2(FORT_RANGE - 1.5, 0.0), 1.0);
+        let hp0 = w.unit(uh).unwrap().hp;
+        w.rebuild_grid();
+        for _ in 0..30 {
+            w.update_buildings(DT);
+        }
+        assert!(w.unit(uh).map_or(true, |u| u.hp < hp0), "要塞が射たない");
+    }
+
+    /// 訓練・教化の費用は蓄えの多い資源から払う
+    #[test]
+    fn upgrade_cost_follows_stock() {
+        let mut w = World::new(12345);
+        let i = (0..w.units.len()).find(|&i| w.units[i].alive && w.units[i].nation == 4 && w.units[i].kind.military()).unwrap();
+        let p = w.units[i].power;
+        let total = (40.0 * p * w.nations[4].tm.upgrade).round();
+        // 木が余っていれば木で多く払う
+        w.nations[4].res = [100.0, 5000.0, 10.0];
+        let c = w.upgrade_cost(&w.units[i]);
+        assert_eq!(c[0] + c[1] + c[2], total);
+        assert!(c[1] > c[0] && c[1] > c[2] && c[2] <= 10.0, "{:?}", c);
+        // 銅がなくても訓練できる
+        let h = w.uh(i);
+        let x = w.nations[4].capital.and_then(|b| w.bld(b)).unwrap().center();
+        w.units[i].pos = x;
+        assert!(w.upgrade_unit(h).is_ok());
+        // 蓄えが乏しければ従来どおり糧と銅
+        w.nations[4].res = [1.0, 1.0, 1.0];
+        let c = w.upgrade_cost(&w.units[i]);
+        assert!(c[1] == 0.0 && c[0] > c[2] && c[2] > 0.0, "{:?}", c);
+    }
+
+    /// 和睦はプレイヤーに選ばせる：拒否すれば交戦が続き、受諾すれば休戦する
+    #[test]
+    fn peace_needs_player_answer() {
+        let mut w = World::new(12345);
+        w.player = 4;
+        w.declare_war(4, 5, false);
+        // 連合の解散などによる和睦は、プレイヤーの返答を待つ
+        assert!(!w.propose_peace(5, 4, 8.0, "連合の解散"));
+        assert!(w.war[4][5] && w.peace_asks.len() == 1);
+        // 同じ国から重ねて申し入れない
+        w.propose_peace(4, 5, 8.0, "連合の解散");
+        assert_eq!(w.peace_asks.len(), 1);
+        w.answer_peace(false);
+        assert!(w.war[4][5] && w.peace_asks.is_empty() && w.offer_cd[5] > w.years);
+        w.propose_peace(5, 4, 8.0, "連合の解散");
+        w.answer_peace(true);
+        assert!(!w.war[4][5] && w.truce[4][5] > w.years + 7.0);
+        // プレイヤーが当事者でなければ即座に和睦する
+        w.declare_war(6, 7, false);
+        assert!(w.propose_peace(6, 7, 8.0, "連合の解散") && !w.war[6][7]);
+    }
+
     /// 全 AI で長期間シミュレーションし、国家の推移とイベントを確認する
     #[test]
     fn long_sim() {
@@ -2794,10 +3079,11 @@ mod tests {
                     .nations
                     .iter()
                     .filter(|n| n.alive)
-                    .map(|n| format!("{}(c{} w{} s{} p{:.0} f{:.0})", n.name, n.cities, n.workers, n.soldiers, n.strength, n.res[0]))
+                    .map(|n| format!("{}(c{} w{} s{} p{:.0} 糧{:.0}木{:.0}銅{:.0})", n.name, n.cities, n.workers, n.soldiers, n.strength, n.res[0], n.res[1], n.res[2]))
                     .collect();
                 let units = w.units.iter().filter(|u| u.alive).count();
-                println!("BC{} t={:.1}s units={} alive={} :: {}", w.year_bc(), t0.elapsed().as_secs_f32(), units, alive.len(), alive.join(" "));
+                let forts = w.blds.iter().filter(|b| b.alive && b.kind == BKind::Fort && b.done()).count();
+                println!("BC{} t={:.1}s units={} forts={} alive={} :: {}", w.year_bc(), t0.elapsed().as_secs_f32(), units, forts, alive.len(), alive.join(" "));
                 let mut coins: Vec<(f32, usize)> = (0..NATIONS.len()).filter(|&i| w.nations[i].alive).map(|i| (w.nations[i].coin_income, i)).collect();
                 coins.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
                 let top: Vec<String> = coins.iter().take(6).map(|&(c, i)| format!("{}{:.2}/s({:.0})", w.nations[i].name, c, w.nations[i].coin)).collect();

@@ -9,7 +9,7 @@ use crate::ai::AiState;
 use crate::save::{RResult, Reader, Writer};
 
 /// 記録形式の版（中身の並びを変えたら上げる）
-pub const SAVE_VERSION: u32 = 1;
+pub const SAVE_VERSION: u32 = 2;
 
 fn bad(what: &str) -> String {
     format!("記録が壊れている（{}）", what)
@@ -56,6 +56,7 @@ fn bkind_u8(k: BKind) -> u8 {
         BKind::Town => 1,
         BKind::Barracks => 2,
         BKind::Farm => 3,
+        BKind::Fort => 4,
     }
 }
 fn bkind_of(v: u8) -> RResult<BKind> {
@@ -64,6 +65,7 @@ fn bkind_of(v: u8) -> RResult<BKind> {
         1 => BKind::Town,
         2 => BKind::Barracks,
         3 => BKind::Farm,
+        4 => BKind::Fort,
         _ => return Err(bad("建物")),
     })
 }
@@ -279,6 +281,10 @@ impl World {
             w.f32(u.merc_until);
             w.bool(u.divine);
             w.u8(u.hero);
+            w.usize(u.build_queue.len());
+            for &h in u.build_queue.iter() {
+                w_h(w, h);
+            }
         }
         w.usize(self.free_units.len());
         for &i in self.free_units.iter() {
@@ -346,6 +352,13 @@ impl World {
                 w.f32(self.truce[a][b]);
             }
             w.bool(self.peace_offer[a]);
+            w.f32(self.offer_cd[a]);
+        }
+        w.usize(self.peace_asks.len());
+        for q in self.peace_asks.iter() {
+            w.usize(q.from);
+            w.f32(q.years);
+            w.str(&q.why);
         }
         w.usize(self.coalitions.len());
         for c in self.coalitions.iter() {
@@ -528,6 +541,7 @@ impl World {
                 merc_until: 0.0,
                 divine: false,
                 hero: NONE,
+                build_queue: std::collections::VecDeque::new(),
             };
             if alive {
                 u.nation = r.u8()?;
@@ -550,6 +564,10 @@ impl World {
                 u.merc_until = r.f32()?;
                 u.divine = r.bool()?;
                 u.hero = r.u8()?;
+                let k = r.len(1000)?;
+                for _ in 0..k {
+                    u.build_queue.push_back(r_h(r)?);
+                }
             }
             units.push(u);
         }
@@ -655,6 +673,16 @@ impl World {
                 w.truce[a][b] = r.f32()?;
             }
             w.peace_offer[a] = r.bool()?;
+            w.offer_cd[a] = r.f32()?;
+        }
+        let np = r.len(1000)?;
+        w.peace_asks.clear();
+        for _ in 0..np {
+            let from = r.usize()?;
+            if from >= nn {
+                return Err(bad("和睦の申し入れ"));
+            }
+            w.peace_asks.push_back(PeaceAsk { from, years: r.f32()?, why: r.str()? });
         }
         let nc = r.len(1000)?;
         let mut coalitions = Vec::with_capacity(nc);

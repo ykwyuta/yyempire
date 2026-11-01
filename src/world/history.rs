@@ -370,7 +370,11 @@ impl World {
                     if self.coalition_locked(a, b) {
                         continue;
                     }
-                    self.make_peace(a, b, yrs);
+                    // 交戦中のプレイヤーには休戦を受けるか選ばせる
+                    if self.war[a][b] && !self.propose_peace(a, b, yrs, e.title) {
+                        notes.push(format!("{}と{}に{}年の休戦の勧め", self.nations[a].name, self.nations[b].name, yrs as i32));
+                        continue;
+                    }
                     let t = self.years + yrs;
                     self.truce[a][b] = self.truce[a][b].max(t);
                     self.truce[b][a] = self.truce[b][a].max(t);

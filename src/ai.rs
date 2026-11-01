@@ -98,6 +98,7 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
                 }
             }
             BKind::Farm => farms += 1,
+            BKind::Fort => {}
         }
     }
     if cities.is_empty() {
@@ -218,6 +219,25 @@ fn think(w: &mut World, n: usize, a: &mut AiState) {
         }
     }
 
+    // ---- 要塞：資源が余っているか戦時なら、城邑の近くに築く
+    let res = w.nations[n].res;
+    let fort_c = BKind::Fort.cost();
+    let rich = res[0] >= fort_c[0] * 2.0 && res[1] >= fort_c[1] * 2.0 && res[2] >= fort_c[2] * 2.0;
+    let can_pay = res[0] >= fort_c[0] && res[1] >= fort_c[1] && res[2] >= fort_c[2];
+    let forts_building = unfinished.iter().any(|&h| w.bld(h).map_or(false, |b| b.kind == BKind::Fort));
+    if can_pay && (rich || at_war_any) && !forts_building && w.fort_count(n) < w.nations[n].fort_cap() && a.rng.chance(0.15) {
+        let c = cities[a.rng.below(cities.len() as u32) as usize];
+        let cc = w.bld(c).unwrap().center();
+        if let Some((tx, ty)) = find_spot(w, n, BKind::Fort, cc, 4.0, 8.0, &mut a.rng) {
+            if let Ok(bh) = w.place_building(n, BKind::Fort, tx, ty) {
+                if let Some(x) = workers.iter_mut().find(|x| !matches!(x.1, Order::Build(_))) {
+                    w.order_build(&[x.0], bh);
+                    x.1 = Order::Build(bh);
+                }
+            }
+        }
+    }
+
     // ---- 拡張（築城）
     let res = w.nations[n].res;
     let max_cities = if w.era == Era::Spring { 3 } else { 5 } + if w.nations[n].bias > 1.2 { 2 } else { 0 };
@@ -300,11 +320,10 @@ fn diplomacy(w: &mut World, n: usize, a: &mut AiState, nsold: usize) {
         let dur = years - w.war_start[n][e];
         let theirs = w.nations[e].strength;
         if dur > 10.0 && (my < theirs * 0.8 || a.rng.chance(0.12)) {
-            if e == w.player {
-                if !w.peace_offer[n] {
+            if e == w.player && !w.ai_player {
+                if !w.peace_offer[n] && w.offer_cd[n] <= years {
                     w.peace_offer[n] = true;
-                    let t = format!("{} が和睦を申し入れている（外交画面で受諾できる）", w.nations[n].name);
-                    w.push_msg(t, [0.7, 0.9, 1.0]);
+                    w.propose_peace(n, e, 10.0, "戦の長期化");
                 }
             } else {
                 w.make_peace(n, e, 10.0);
