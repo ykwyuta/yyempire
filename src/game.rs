@@ -3,6 +3,7 @@
 mod chronicle;
 mod heroes;
 mod market;
+mod save;
 mod tutorial;
 
 use crate::art::{paint_aoe_terrain_pixel, Art, CmdIcon, ResIcon};
@@ -36,6 +37,9 @@ const VK_F1: u32 = 0x70;
 const VK_F2: u32 = 0x71;
 const VK_F3: u32 = 0x72;
 const VK_F4: u32 = 0x73;
+const VK_F5: u32 = 0x74;
+/// 下の画面への操作を遮る透明なボタンの目印
+const BLOCK_LABEL: &str = "#block";
 const VK_F11: u32 = 0x7A;
 const VK_ADD: u32 = 0x6B;
 const VK_SUB: u32 = 0x6D;
@@ -107,6 +111,11 @@ enum Act {
     TutQuit,
     Scale(i32),
     Fullscreen,
+    SaveMenu,
+    SaveSlot(u8),
+    LoadSlot(u8),
+    ExportSlot(u8),
+    ImportFile,
     Noop,
 }
 
@@ -169,6 +178,10 @@ pub struct Game {
     show_chron: bool,
     show_market: bool,
     show_summon: bool,
+    /// 記録（セーブ・ロード）画面
+    show_save: bool,
+    /// 最後に記録した年（自動記録の間隔）
+    autosave_years: f32,
     /// タイトル画面で選ぶ英霊モード（既定は無効）
     heroic_opt: bool,
     chron_scroll: usize,
@@ -297,6 +310,8 @@ impl Game {
             show_chron: false,
             show_market: false,
             show_summon: false,
+            show_save: false,
+            autosave_years: 0.0,
             heroic_opt: false,
             chron_scroll: 0,
             title_sel: None,
@@ -594,6 +609,9 @@ impl Game {
         (2.0, h - MM_H - 2.0, 2.0 + MM_W, h - 2.0)
     }
     fn over_ui(&self, x: f32, y: f32) -> bool {
+        if self.show_save {
+            return true;
+        }
         if self.screen == Screen::Title {
             return x > self.gfx.width as f32 - 380.0;
         }
@@ -603,7 +621,7 @@ impl Game {
                 return true;
             }
         }
-        if self.show_diplo || self.show_help || self.show_chron || self.show_market || self.show_summon || self.world.game_over.is_some() {
+        if self.show_diplo || self.show_help || self.show_chron || self.show_market || self.show_summon || self.show_save || self.world.game_over.is_some() {
             return true;
         }
         y < TOP_H || y > self.gfx.height as f32 - BOT_H
@@ -681,6 +699,7 @@ impl Game {
                     self.acc = 0.0;
                 }
             }
+            self.autosave_tick();
             self.update_fog(dt);
             self.update_tutorial(dt);
             let pl = self.world.player;
@@ -886,7 +905,7 @@ impl Game {
                             return false;
                         }
                         let (mx0, my0, mx1, my1) = self.mm_rect();
-                        if x >= mx0 && x <= mx1 && y >= my0 && y <= my1 && !self.show_diplo && !self.show_help && !self.show_chron && !self.show_market && !self.show_summon {
+                        if x >= mx0 && x <= mx1 && y >= my0 && y <= my1 && !self.show_diplo && !self.show_help && !self.show_chron && !self.show_market && !self.show_summon && !self.show_save {
                             self.mm_drag = true;
                             self.minimap_jump(x, y);
                             return false;
@@ -974,6 +993,10 @@ impl Game {
     fn key_down(&mut self, k: u32) -> bool {
         let ctrl = self.keys[VK_CONTROL as usize];
         match k {
+            VK_F5 => {
+                self.do_act(Act::SaveMenu);
+                return false;
+            }
             VK_F11 => {
                 self.do_act(Act::Fullscreen);
                 return false;
@@ -990,6 +1013,10 @@ impl Game {
         }
         if self.screen == Screen::Title {
             if k == VK_ESCAPE {
+                if self.show_save {
+                    self.show_save = false;
+                    return false;
+                }
                 return true;
             }
             if k == VK_SPACE || k == 0x0D {
@@ -1017,12 +1044,13 @@ impl Game {
             VK_ESCAPE => {
                 if self.mode != Mode::Normal {
                     self.mode = Mode::Normal;
-                } else if self.show_diplo || self.show_help || self.show_chron || self.show_market || self.show_summon {
+                } else if self.show_diplo || self.show_help || self.show_chron || self.show_market || self.show_summon || self.show_save {
                     self.show_summon = false;
                     self.show_diplo = false;
                     self.show_help = false;
                     self.show_chron = false;
                     self.show_market = false;
+                    self.show_save = false;
                 } else {
                     self.clear_sel();
                 }
@@ -1646,6 +1674,7 @@ impl Game {
                     self.zoom = 22.0;
                     self.cam = self.world.nations[n].home;
                     self.reset_fog();
+                    self.autosave_years = self.world.years;
                     let name = self.world.nations[n].name;
                     self.world.push_msg(format!("紀元前770年、周の東遷。あなたは {} の君主となった。", name), [1.0, 0.9, 0.6]);
                     self.world.push_msg("F1でヘルプ、F2で外交画面を開く".into(), [0.8, 0.8, 0.8]);
@@ -1662,6 +1691,23 @@ impl Game {
                 self.notice(&format!("文字の大きさ ×{:.2}", self.gfx.ui));
             }
             Act::Fullscreen => self.gfx.toggle_fullscreen(),
+            Act::SaveMenu => {
+                self.show_save = !self.show_save;
+                if self.show_save {
+                    self.show_diplo = false;
+                    self.show_help = false;
+                    self.show_chron = false;
+                    self.show_market = false;
+                    self.show_summon = false;
+                }
+            }
+            Act::SaveSlot(s) => self.save_slot(s, false),
+            Act::LoadSlot(s) => {
+                self.notice("記録を読み込んでいる…");
+                crate::platform::load_slot(s);
+            }
+            Act::ExportSlot(s) => crate::platform::export_slot(s),
+            Act::ImportFile => crate::platform::import_file(),
             Act::Restart => {
                 self.tut = None;
                 self.seed = self.seed.wrapping_add(17);
@@ -1675,6 +1721,7 @@ impl Game {
                 self.show_help = false;
                 self.show_chron = false;
                 self.show_market = false;
+                self.show_save = false;
                 self.show_summon = false;
                 self.paused = false;
                 self.speed = 1;
@@ -1824,12 +1871,14 @@ impl Game {
                 self.show_help = false;
                 self.show_chron = false;
                 self.show_market = false;
+                self.show_save = false;
             }
             Act::Help => {
                 self.show_help = !self.show_help;
                 self.show_diplo = false;
                 self.show_chron = false;
                 self.show_market = false;
+                self.show_save = false;
             }
             Act::Chron => {
                 self.show_chron = !self.show_chron;
@@ -1837,6 +1886,7 @@ impl Game {
                 self.show_diplo = false;
                 self.show_help = false;
                 self.show_market = false;
+                self.show_save = false;
             }
             Act::Market => {
                 self.show_market = !self.show_market;
@@ -1869,6 +1919,7 @@ impl Game {
                     self.show_help = false;
                     self.show_chron = false;
                     self.show_market = false;
+                    self.show_save = false;
                 }
             }
             Act::SummonHero(k) => {
@@ -1887,6 +1938,7 @@ impl Game {
                 self.show_help = false;
                 self.show_chron = false;
                 self.show_market = false;
+                self.show_save = false;
             }
             Act::War(o) => {
                 if self.world.truce[pl][o] > self.world.years {
@@ -1971,6 +2023,9 @@ impl Game {
             }
             if self.screen == Screen::Title {
                 self.render_title();
+                if self.show_save {
+                    self.render_save();
+                }
             } else {
                 self.render_hud();
                 if self.show_diplo {
@@ -1987,6 +2042,9 @@ impl Game {
                 }
                 if self.show_summon {
                     self.render_summon();
+                }
+                if self.show_save {
+                    self.render_save();
                 }
                 if self.world.game_over.is_some() {
                     self.render_gameover();
@@ -2717,10 +2775,21 @@ impl Game {
             self.add_button(px + 50.0, 530.0, w - 50.0, 576.0, "この国で覇業を開始", "", 0, true, Act::Start, "");
         }
         let ty = (h - 128.0).max(592.0);
+        // 記録から続ける（空きがあれば独立した行、狭ければ英霊モードの行と並べる）
+        let cy = ty - 108.0;
+        let heroic_x0 = if self.title_sel.is_some() && cy < 590.0 {
+            let mid = px + 24.0 + (w - 48.0 - px) * 0.5;
+            self.add_button(mid + 4.0, ty - 54.0, w - 24.0, ty - 12.0, "続きから F5", "", 0, true, Act::SaveMenu, "記録した対局を再開する");
+            Some(mid - 4.0)
+        } else {
+            self.add_button(px + 24.0, cy, w - 24.0, cy + 42.0, "続きから（記録を読み込む） F5", "", 0, true, Act::SaveMenu, "記録した対局を再開する。書き出したファイルからも読み込める");
+            None
+        };
         let hl = if self.heroic_opt { "英霊モード：オン" } else { "英霊モード：オフ" };
-        self.add_button(px + 24.0, ty - 54.0, w - 24.0, ty - 12.0, hl, "", 0, true, Act::ToggleHeroic, "三皇五帝から春秋戦国の英霊を、民を生贄にして時代と国を超えて呼べる（一国に一体）。英霊は上帝の軍を傷つけられ、上帝降臨から10年後の版図が上帝の秦より広ければ勝利。他国も召喚する");
+        let hx1 = heroic_x0.unwrap_or(w - 24.0);
+        self.add_button(px + 24.0, ty - 54.0, hx1, ty - 12.0, hl, "", 0, true, Act::ToggleHeroic, "三皇五帝から春秋戦国の英霊を、民を生贄にして時代と国を超えて呼べる（一国に一体）。英霊は上帝の軍を傷つけられ、上帝降臨から10年後の版図が上帝の秦より広ければ勝利。他国も召喚する");
         if self.heroic_opt {
-            self.gfx.stroke_round(px + 24.0, ty - 54.0, w - 24.0, ty - 12.0, 3.0, 2.0, [1.0, 0.85, 0.4, 1.0]);
+            self.gfx.stroke_round(px + 24.0, ty - 54.0, hx1, ty - 12.0, 3.0, 2.0, [1.0, 0.85, 0.4, 1.0]);
         }
         self.add_button(px + 24.0, ty, w - 24.0, ty + 48.0, "はじめての方は：チュートリアル", "", 0, true, Act::Tutorial, "晋の君主として、操作と遊び方を1段ずつ学ぶ");
         let ty = ty + 60.0;
@@ -2731,7 +2800,7 @@ impl Game {
         // タイトル画面のツールチップ
         let (mx, my) = self.mouse;
         let tip = self.buttons.iter().find(|b| mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1 && !b.tip.is_empty()).map(|b| b.tip.clone());
-        if let Some(t) = tip {
+        if let Some(t) = tip.filter(|_| !self.show_save) {
             // 説明の行数に合わせて上へ伸ばす
             let x0 = px + 24.0;
             let th = self.gfx.measure_h(&t, Font::Small, w - x0 - 40.0) + 10.0;
@@ -2872,6 +2941,8 @@ impl Game {
         self.add_button(w - 242.0, 5.0, w - 166.0, 31.0, "交易 F4", "", 0, true, Act::Market, "商人の税・市場・山岳民と遊牧民・傭兵・西域");
         self.add_button(w - 162.0, 5.0, w - 84.0, 31.0, "外交 F2", "", 0, true, Act::Diplo, "");
         self.add_button(w - 80.0, 5.0, w - 4.0, 31.0, "ヘルプ F1", "", 0, true, Act::Help, "");
+        // 記録（上部バーに余地が無いので、その下の右端に置く）
+        self.add_button(w - 80.0, TOP_H + 4.0, w - 4.0, TOP_H + 30.0, "記録 F5", "", 0, true, Act::SaveMenu, "記録（セーブ・ロード）。10年ごとに自動でも記録する");
         if paused {
             self.gfx.text_shadow("一時停止中（Space）", w / 2.0 - 120.0, TOP_H + 60.0, 240.0, 30.0, Font::BigCenter, [1.0, 1.0, 0.8, 1.0]);
         } else if let Some(left) = self.world.descent_left() {
@@ -3004,7 +3075,7 @@ impl Game {
         let cx0 = w - 388.0;
         self.art.draw_inset_box(&self.gfx, cx0, py + 6.0, w - 4.0, h - 4.0);
         self.art.draw_corner_ornaments(&self.gfx, cx0 + 2.0, py + 8.0, w - 6.0, h - 6.0, 11.0);
-        if !self.show_diplo && !self.show_help && !self.show_chron && !self.show_market && !self.show_summon {
+        if !self.show_diplo && !self.show_help && !self.show_chron && !self.show_market && !self.show_summon && !self.show_save {
             self.render_commands(w - 382.0, py + 12.0);
         }
 
@@ -3020,7 +3091,18 @@ impl Game {
         let (w, h) = (self.gfx.width as f32, self.gfx.height as f32);
         let (mx, my) = self.mouse;
         // 後から置いたボタン（上に重なる画面）を優先
-        let tip = self.buttons.iter().rev().find(|b| mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1 && !b.tip.is_empty()).map(|b| b.tip.clone());
+        let mut tip = None;
+        for b in self.buttons.iter().rev() {
+            if mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1 {
+                if b.label == BLOCK_LABEL {
+                    break;
+                }
+                if !b.tip.is_empty() {
+                    tip = Some(b.tip.clone());
+                    break;
+                }
+            }
+        }
         let Some(t) = tip else { return };
         let tw = 340.0f32.min(w - 8.0);
         let th = self.gfx.measure_h(&t, Font::Small, tw - 16.0) + 14.0;
@@ -3587,7 +3669,7 @@ impl Game {
 　A：進軍（攻撃移動）　S：停止　T：訓練・教化　C：兵⇔民の転換　Q/W/E：建設・訓練
 　Ctrl+数字：部隊登録　数字：部隊呼び出し　.：待機中の民　Home：国都へ
 　ホイール：拡大縮小　中ボタンドラッグ・矢印キー・画面端：スクロール　ミニマップクリック：移動
-　Space：一時停止　＋／－：速度　Esc：取り消し　F11：全画面　Ctrl＋＋／Ctrl＋−：文字の大きさ";
+　Space：一時停止　＋／－：速度　Esc：取り消し　F5：記録（セーブ・ロード）　F11：全画面　Ctrl＋＋／Ctrl＋−：文字の大きさ";
         // 入りきらなければ小さい字にする
         let f = if self.gfx.measure_h(text, Font::Normal, pw - 48.0) > ph - 64.0 { Font::Small } else { Font::Normal };
         self.gfx.text(text, x0 + 24.0, y0 + 52.0, pw - 48.0, ph - 64.0, f, [0.92, 0.9, 0.84, 1.0]);
@@ -3611,6 +3693,7 @@ impl Game {
         };
         self.gfx.text_shadow(title, x0, y0 + 20.0, pw, 60.0, Font::Title, if win { [1.0, 0.85, 0.4, 1.0] } else { [0.9, 0.4, 0.35, 1.0] });
         self.gfx.text(&text, x0 + 20.0, y0 + 100.0, pw - 40.0, 60.0, Font::BigCenter, [0.95, 0.92, 0.85, 1.0]);
-        self.add_button(x0 + pw / 2.0 - 100.0, y0 + 180.0, x0 + pw / 2.0 + 100.0, y0 + 228.0, "新しい天下へ", "", 0, true, Act::Restart, "");
+        self.add_button(x0 + pw / 2.0 - 210.0, y0 + 180.0, x0 + pw / 2.0 - 10.0, y0 + 228.0, "新しい天下へ", "", 0, true, Act::Restart, "");
+        self.add_button(x0 + pw / 2.0 + 10.0, y0 + 180.0, x0 + pw / 2.0 + 210.0, y0 + 228.0, "記録から再開 F5", "", 0, true, Act::SaveMenu, "");
     }
 }

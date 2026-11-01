@@ -6,9 +6,9 @@ use crate::world::*;
 
 pub struct AiState {
     pub rng: Rng,
-    think_t: f32,
-    war_t: f32,
-    attack_t: f32,
+    pub(crate) think_t: f32,
+    pub(crate) war_t: f32,
+    pub(crate) attack_t: f32,
     /// 好戦性（国ごとの性格）
     pub aggr: f32,
 }

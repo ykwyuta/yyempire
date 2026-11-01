@@ -108,19 +108,19 @@ pub struct Caravan {
     pub kind: CaravanKind,
     pub pos: V2,
     pub dir: V2,
-    path: Vec<(i16, i16)>,
-    path_i: usize,
-    need_path: bool,
-    dest: Option<Handle>,
-    goal: V2,
+    pub(crate) path: Vec<(i16, i16)>,
+    pub(crate) path_i: usize,
+    pub(crate) need_path: bool,
+    pub(crate) dest: Option<Handle>,
+    pub(crate) goal: V2,
     /// 市で商い中の残り秒
     pub stay: f32,
-    trips: u8,
-    max_trips: u8,
+    pub(crate) trips: u8,
+    pub(crate) max_trips: u8,
     /// 帰途（西域・部族）
     pub leaving: bool,
     /// 去った（取り除く）
-    gone: bool,
+    pub(crate) gone: bool,
     pub value: f32,
 }
 
@@ -142,8 +142,8 @@ pub struct Trade {
     /// 中原の商人の目標数（中原全体の生産量に比例）
     pub target: usize,
     pub target_w: usize,
-    spawn_t: f32,
-    band_t: f32,
+    pub(crate) spawn_t: f32,
+    pub(crate) band_t: f32,
 }
 
 impl Trade {

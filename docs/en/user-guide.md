@@ -46,6 +46,8 @@ Then open http://localhost:8000/ in your browser.
 
 If the text is too small, press **Ctrl + +** or **Ctrl + −** (or use 文字 ＋／− on the title screen). **F11** switches to full screen.
 
+**Saving and loading**: press **F5** (or the 記録 F5 button at the top right) to open the save screen. There are three save slots, plus an autosave every 10 years. Use 続きから on the title screen to continue. Saves are kept in your browser; use 書き出す to download a save file (.yysav) and ファイルから読み込む to load it on another device. You can't save during the tutorial or after the game has ended.
+
 ## 2. Goal of the game
 
 The game starts in 770 BC. You win by **destroying every other state before 221 BC**.

@@ -11,11 +11,13 @@ mod trade;
 mod traits;
 mod descent;
 mod heroes;
+mod save;
 pub use history::{Chron, HKind, Person, HISTORY, INITIAL_HOUSE};
 pub use trade::*;
 pub use traits::*;
 pub use descent::*;
 pub use heroes::*;
+pub use save::SAVE_VERSION;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct V2 {

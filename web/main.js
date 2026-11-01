@@ -165,8 +165,148 @@ function clearTextCaches() {
   curFont = -1;
 }
 
+// ------------------------------------------------------------------ 記録（IndexedDB）
+// 枠 0 は自動記録、1〜3 は手動。{ data: ArrayBuffer, meta: 見出し, time: 保存時刻 } を保存する
+const DB_NAME = 'yyempire';
+const STORE = 'slots';
+let db = null;
+const memStore = new Map(); // IndexedDB が使えないときの代わり（この画面を閉じるまで）
+const slotInfo = new Map(); // 枠 → { meta, time }
+const enc = new TextEncoder();
+
+function openDb() {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+function dbReq(mode, f) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, mode);
+    const r = f(tx.objectStore(STORE));
+    tx.oncomplete = () => resolve(r && r.result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+async function storeGet(slot) {
+  if (!db) return memStore.get(slot) ?? null;
+  return (await dbReq('readonly', (st) => st.get(slot))) ?? null;
+}
+async function storePut(slot, rec) {
+  if (!db) {
+    memStore.set(slot, rec);
+    return;
+  }
+  await dbReq('readwrite', (st) => st.put(rec, slot));
+}
+async function loadSlotInfo() {
+  db = await openDb();
+  for (let s = 0; s < 4; s++) {
+    try {
+      const rec = await storeGet(s);
+      if (rec) slotInfo.set(s, { meta: rec.meta, time: rec.time });
+    } catch {}
+  }
+}
+function fmtDate(t) {
+  const d = new Date(t);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// Rust の領域に書き込んで渡す
+function passBytes(bytes, fn) {
+  const p = wasm.yy_alloc(bytes.length);
+  views();
+  u8.set(bytes, p);
+  fn(p, bytes.length);
+}
+function notify(text) {
+  passBytes(enc.encode(text), (p, l) => wasm.yy_notice(p, l));
+}
+function deliver(buf) {
+  passBytes(new Uint8Array(buf), (p, l) => wasm.yy_loaded(p, l));
+}
+function download(rec, slot) {
+  // 端末によっては日本語のファイル名が使えないので英数字にする
+  const bc = /紀元前(\d+)年/.exec(rec.meta || '');
+  const d = new Date(rec.time || Date.now());
+  const p2 = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}`;
+  const name = `yyempire-${slot === 0 ? 'auto' : 'slot' + slot}${bc ? '-BC' + bc[1] : ''}-${stamp}.yysav`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([rec.data], { type: 'application/octet-stream' }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  }, 1000);
+}
+function pickFile() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.yysav,application/octet-stream';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try {
+      deliver(await f.arrayBuffer());
+    } catch (e) {
+      notify('ファイルを読めなかった：' + e);
+    }
+  };
+  inp.click();
+}
+
 // ------------------------------------------------------------------ Rust から呼ばれる関数
 const env = {
+  js_save: (slot, p, l, mp, ml) => {
+    views();
+    const data = u8.slice(p, p + l).buffer;
+    const meta = str(mp, ml);
+    const rec = { data, meta, time: Date.now() };
+    const prev = slotInfo.get(slot);
+    slotInfo.set(slot, { meta, time: rec.time });
+    storePut(slot, rec).catch((e) => {
+      if (prev) slotInfo.set(slot, prev);
+      else slotInfo.delete(slot);
+      notify('記録できなかった：' + (e && e.name === 'QuotaExceededError' ? '保存領域が足りない' : e));
+    });
+    if (!db && slot !== 0 && !window.__yyMemWarned) {
+      window.__yyMemWarned = true;
+      notify('このブラウザでは記録を保存できない。画面を閉じる前にファイルへ書き出してください');
+    }
+  },
+  js_load: (slot) => {
+    storeGet(slot)
+      .then((rec) => (rec ? deliver(rec.data) : notify('この枠には記録がない')))
+      .catch((e) => notify('読み込めなかった：' + e));
+  },
+  js_slot_info: (slot, out, cap) => {
+    const info = slotInfo.get(slot);
+    if (!info) return 0;
+    const b = enc.encode(`${info.meta}\t${fmtDate(info.time)}`);
+    if (b.length > cap) return 0;
+    views();
+    u8.set(b, out);
+    return b.length;
+  },
+  js_export: (slot) => {
+    storeGet(slot)
+      .then((rec) => (rec ? download(rec, slot) : notify('この枠には記録がない')))
+      .catch((e) => notify('書き出せなかった：' + e));
+  },
+  js_import: () => pickFile(),
+
   js_now: () => performance.now(),
   js_random: () => (Math.random() * 0xffffffff) >>> 0,
   js_log: (p, l, level) => {
@@ -380,7 +520,7 @@ function vkOf(e) {
 }
 // ブラウザの既定動作を止めるキー
 function shouldPrevent(e, vk) {
-  if (vk >= 0x70 && vk <= 0x7b && vk !== 0x74 /* F5 */ && vk !== 0x7b /* F12 */) return true;
+  if (vk >= 0x70 && vk <= 0x7b && vk !== 0x7b /* F12 */) return true;
   if ([0x08, 0x09, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28].includes(vk)) return true;
   if ((e.ctrlKey || e.metaKey) && (vk === 0xbb || vk === 0xbd || vk === 0x6b || vk === 0x6d || (vk >= 0x30 && vk <= 0x39))) return true;
   return false;
@@ -566,7 +706,7 @@ async function main() {
     Promise.all([document.fonts.load(`400 14px ${FAMILY}`, '春秋'), document.fonts.load(`700 14px ${FAMILY}`, '春秋')]),
     new Promise((r) => setTimeout(r, 3000)),
   ]);
-  const [exports] = await Promise.all([loadWasm(), fontWait]);
+  const [exports] = await Promise.all([loadWasm(), fontWait, loadSlotInfo()]);
   wasm = exports;
   document.fonts.addEventListener?.('loadingdone', clearTextCaches);
   fit();

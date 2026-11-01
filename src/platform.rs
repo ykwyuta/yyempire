@@ -29,6 +29,12 @@ pub mod js {
         pub fn js_bmp_update(id: u32, w: u32, ptr: *const u8);
         pub fn js_bmp_draw(id: u32, x0: f32, y0: f32, x1: f32, y1: f32, alpha: f32);
 
+        pub fn js_save(slot: u32, ptr: *const u8, len: usize, meta: *const u8, meta_len: usize);
+        pub fn js_load(slot: u32);
+        pub fn js_slot_info(slot: u32, out: *mut u8, cap: usize) -> usize;
+        pub fn js_export(slot: u32);
+        pub fn js_import();
+
         pub fn js_fullscreen_toggle();
         pub fn js_is_fullscreen() -> u32;
     }
@@ -76,4 +82,66 @@ pub fn install_panic_hook() {
         let s = info.to_string();
         unsafe { js::js_log(s.as_ptr(), s.len(), 2) }
     }));
+}
+
+// ------------------------------------------------------------ 記録（ブラウザの IndexedDB）
+
+/// 記録を枠に保存する（非同期。結果はブラウザ側から通知される）
+pub fn save_slot(slot: u8, data: &[u8], meta: &str) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        js::js_save(slot as u32, data.as_ptr(), data.len(), meta.as_ptr(), meta.len())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (slot, data, meta);
+}
+
+/// 枠の記録を読み込むよう頼む（読み込めたら yy_loaded が呼ばれる）
+pub fn load_slot(slot: u8) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        js::js_load(slot as u32)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = slot;
+}
+
+/// 枠の見出しと保存日時（空きなら None）
+pub fn slot_info(slot: u8) -> Option<(String, String)> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut buf = vec![0u8; 512];
+        let n = unsafe { js::js_slot_info(slot as u32, buf.as_mut_ptr(), buf.len()) };
+        if n == 0 || n > buf.len() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&buf[..n]).to_string();
+        let mut it = s.splitn(2, '\t');
+        let meta = it.next().unwrap_or("").to_string();
+        let date = it.next().unwrap_or("").to_string();
+        return Some((meta, date));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = slot;
+        None
+    }
+}
+
+/// 枠の記録をファイルとして書き出す
+pub fn export_slot(slot: u8) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        js::js_export(slot as u32)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = slot;
+}
+
+/// 記録ファイルを選んで読み込む
+pub fn import_file() {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        js::js_import()
+    }
 }
