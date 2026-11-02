@@ -24,7 +24,7 @@
       :root { --sl: 0px; --sr: 0px; --st: 0px; --sb: 0px; }
       @media (pointer: coarse) {
         :root { --sl: max(env(safe-area-inset-left), 14px); --sr: max(env(safe-area-inset-right), 14px);
-          --st: max(env(safe-area-inset-top), 6px); --sb: max(env(safe-area-inset-bottom), 12px); }
+          --st: max(env(safe-area-inset-top), 10px); --sb: max(env(safe-area-inset-bottom), 14px); }
       }
       canvas { position: fixed; left: var(--sl); top: var(--st); display: block;
         width: calc(100vw - var(--sl) - var(--sr)); height: calc(100vh - var(--st) - var(--sb)); height: calc(100dvh - var(--st) - var(--sb)); }

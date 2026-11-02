@@ -7,6 +7,8 @@ use super::*;
 
 /// 一覧を描く仮の画面の高さ（パソコン版の最小の高さ）
 const VIRTUAL_H: u32 = 720;
+/// スマートフォンの上部バーの高さ（画面上端は OS やブラウザが触れたタッチを横取りしやすいので、ボタンを大きく下まで伸ばす）
+pub(super) const TOP_H_COMPACT: f32 = 50.0;
 
 impl Game {
     /// 一覧の画面を開いているか
@@ -97,8 +99,10 @@ impl Game {
     /// 詰めた画面の上部バー（資源・人数・銭・年・速度・各画面）
     pub(super) fn render_topbar_compact(&mut self) {
         let w = self.gfx.width as f32;
+        const H: f32 = TOP_H_COMPACT;
+        const MID: f32 = H / 2.0;
         let pl = self.world.player;
-        self.art.draw_stone_panel(&self.gfx, 0.0, 0.0, w, TOP_H);
+        self.art.draw_stone_panel(&self.gfx, 0.0, 0.0, w, H);
         let n = &self.world.nations[pl];
         let (res, inc, upkeep) = (n.res, n.income, n.upkeep);
         let (n_workers, w_cap, n_soldiers, m_cap) = (n.workers, n.worker_cap(), n.soldiers, n.mil_cap());
@@ -107,18 +111,18 @@ impl Game {
         let mut x = 6.0;
         for k in 0..3 {
             if let Some(ic) = &self.art.res_icons[res_icons[k] as usize] {
-                self.gfx.draw_bitmap(ic, x, 6.0, x + 24.0, 30.0);
+                self.gfx.draw_bitmap(ic, x, MID - 13.0, x + 26.0, MID + 13.0);
             }
             // 増減は文字色で示す（減っていれば赤）
             let rate = if k == 0 { inc[k] - upkeep } else { inc[k] };
             let col = if rate < -0.05 { [1.0, 0.45, 0.35, 1.0] } else { RES_COLORS[k] };
-            self.gfx.text_shadow(&format!("{}", res[k] as i32), x + 26.0, 7.0, 56.0, 22.0, Font::Big, col);
+            self.gfx.text_shadow(&format!("{}", res[k] as i32), x + 28.0, MID - 11.0, 54.0, 22.0, Font::Big, col);
             let tip = match k {
                 0 => tf!("糧 {:+.1}/秒（軍の維持費 -{:.1}/秒を含む）", "Food {:+.1}/s (incl. army upkeep -{:.1}/s)", "粮 {:+.1}/秒（含军队维持费 -{:.1}/秒）", rate, upkeep),
                 1 => tf!("木 {:+.1}/秒", "Wood {:+.1}/s", "木 {:+.1}/秒", rate),
                 _ => tf!("銅 {:+.1}/秒", "Bronze {:+.1}/s", "铜 {:+.1}/秒", rate),
             };
-            self.buttons.push(Button { x0: x, y0: 4.0, x1: x + 80.0, y1: 32.0, label: String::new(), key: 0, enabled: true, act: Act::Noop, tip });
+            self.buttons.push(Button { x0: x, y0: 0.0, x1: x + 80.0, y1: H, label: String::new(), key: 0, enabled: true, act: Act::Noop, tip });
             x += 82.0;
         }
         // 民・兵（押すと全体を選ぶ）
@@ -126,27 +130,27 @@ impl Game {
             (ResIcon::Worker, format!("{}/{}", n_workers, w_cap), Act::SelectAllWorkers),
             (ResIcon::Soldier, format!("{}/{}", n_soldiers, m_cap), Act::SelectAllMilitary),
         ] {
-            self.gfx.fill_round(x, 4.0, x + 76.0, 32.0, 4.0, [0.16, 0.13, 0.09, 0.75]);
-            self.gfx.stroke_round(x, 4.0, x + 76.0, 32.0, 4.0, 1.0, [0.75, 0.62, 0.34, 0.85]);
+            self.gfx.fill_round(x, 4.0, x + 76.0, H - 4.0, 4.0, [0.16, 0.13, 0.09, 0.75]);
+            self.gfx.stroke_round(x, 4.0, x + 76.0, H - 4.0, 4.0, 1.0, [0.75, 0.62, 0.34, 0.85]);
             if let Some(ic) = &self.art.res_icons[icon as usize] {
-                self.gfx.draw_bitmap(ic, x + 2.0, 6.0, x + 26.0, 30.0);
+                self.gfx.draw_bitmap(ic, x + 2.0, MID - 12.0, x + 26.0, MID + 12.0);
             }
-            self.gfx.text_shadow(&s, x + 27.0, 8.0, 48.0, 22.0, Font::Normal, [0.95, 0.92, 0.85, 1.0]);
+            self.gfx.text_shadow(&s, x + 27.0, MID - 10.0, 48.0, 22.0, Font::Normal, [0.95, 0.92, 0.85, 1.0]);
             let tip = if act == Act::SelectAllWorkers { t!("民全体を選ぶ", "Select all workers", "选择全部民") } else { t!("全軍を選ぶ", "Select all soldiers", "选择全军") };
-            self.buttons.push(Button { x0: x, y0: 4.0, x1: x + 76.0, y1: 32.0, label: String::new(), key: 0, enabled: true, act, tip: tip.to_string() });
+            self.buttons.push(Button { x0: x, y0: 0.0, x1: x + 76.0, y1: H, label: String::new(), key: 0, enabled: true, act, tip: tip.to_string() });
             x += 80.0;
         }
         // 銭（押すと交易画面）
-        self.gfx.fill_circle(x + 11.0, 18.0, 10.0, [0.86, 0.70, 0.30, 1.0]);
-        self.gfx.stroke_circle(x + 11.0, 18.0, 10.0, 1.2, [0.45, 0.32, 0.12, 1.0]);
-        self.gfx.fill_rect(x + 7.5, 14.5, x + 14.5, 21.5, [0.30, 0.22, 0.10, 1.0]);
-        self.gfx.text_shadow(&format!("{}", coin as i32), x + 24.0, 7.0, 52.0, 22.0, Font::Big, [1.0, 0.86, 0.45, 1.0]);
+        self.gfx.fill_circle(x + 11.0, MID, 10.0, [0.86, 0.70, 0.30, 1.0]);
+        self.gfx.stroke_circle(x + 11.0, MID, 10.0, 1.2, [0.45, 0.32, 0.12, 1.0]);
+        self.gfx.fill_rect(x + 7.5, MID - 3.5, x + 14.5, MID + 3.5, [0.30, 0.22, 0.10, 1.0]);
+        self.gfx.text_shadow(&format!("{}", coin as i32), x + 24.0, MID - 11.0, 52.0, 22.0, Font::Big, [1.0, 0.86, 0.45, 1.0]);
         let tip = tf!("銭 {:+.1}/秒（押すと交易画面）", "Coin {:+.1}/s (tap for Trade)", "钱 {:+.1}/秒（点击打开贸易）", coin_inc);
-        self.buttons.push(Button { x0: x, y0: 4.0, x1: x + 76.0, y1: 32.0, label: String::new(), key: 0, enabled: true, act: Act::Market, tip });
+        self.buttons.push(Button { x0: x, y0: 0.0, x1: x + 76.0, y1: H, label: String::new(), key: 0, enabled: true, act: Act::Market, tip });
         x += 80.0;
 
         // 右側：一時停止・速度・各画面
-        let bw = 52.0;
+        let bw = 60.0;
         let menu = [
             (t!("交易", "Trade", "贸易"), Act::Market),
             (t!("外交", "Diplo", "外交"), Act::Diplo),
@@ -154,14 +158,14 @@ impl Game {
             ("？", Act::Help),
         ];
         let mut rx = w - 4.0 - menu.len() as f32 * (bw + 3.0);
-        let speed_x = rx - 82.0;
+        let speed_x = rx - 92.0;
         for (k, (lbl, act)) in menu.iter().enumerate() {
             let x0 = rx + k as f32 * (bw + 3.0);
-            self.add_button(x0, 4.0, x0 + bw, 32.0, lbl, "", 0, true, *act, "");
+            self.add_button(x0, 3.0, x0 + bw, H - 3.0, lbl, "", 0, true, *act, "");
         }
         rx = speed_x;
         let paused = self.paused;
-        self.add_button(rx, 4.0, rx + 36.0, 32.0, if paused { "▶" } else { "❚❚" }, "", 0, true, Act::Speed(0), "");
+        self.add_button(rx, 3.0, rx + 40.0, H - 3.0, if paused { "▶" } else { "❚❚" }, "", 0, true, Act::Speed(0), "");
         // 速度は押すたびに ×1 → ×2 → ×4 → ×8
         let next = match self.speed {
             1 => 2,
@@ -170,7 +174,7 @@ impl Game {
             _ => 1,
         };
         let lbl = format!("×{}", self.speed);
-        self.add_button(rx + 39.0, 4.0, rx + 78.0, 32.0, &lbl, "", 0, true, Act::Speed(next), t!("押すたびに速度が変わる（×1→×2→×4→×8）", "Tap to change speed (×1→×2→×4→×8)", "每次点击切换速度（×1→×2→×4→×8）"));
+        self.add_button(rx + 43.0, 3.0, rx + 88.0, H - 3.0, &lbl, "", 0, true, Act::Speed(next), t!("押すたびに速度が変わる（×1→×2→×4→×8）", "Tap to change speed (×1→×2→×4→×8)", "每次点击切换速度（×1→×2→×4→×8）"));
         // 年（収まる書き方を選ぶ）
         let yb = self.world.year_bc();
         let spring = self.world.era == Era::Spring;
@@ -181,7 +185,7 @@ impl Game {
             (tf!("前{}年", "{} BC", "前{}年", yb), Font::Normal),
         ];
         let (s, f) = cands.into_iter().find(|(s, f)| self.gfx.measure(s, *f) <= room).unwrap_or((tf!("前{}", "{}BC", "前{}", yb), Font::Small));
-        self.gfx.text_shadow(&s, x, if f == Font::Big { 7.0 } else { 10.0 }, room.max(40.0), 24.0, f, [1.0, 0.9, 0.6, 1.0]);
+        self.gfx.text_shadow(&s, x, if f == Font::Big { MID - 11.0 } else { MID - 9.0 }, room.max(40.0), 24.0, f, [1.0, 0.9, 0.6, 1.0]);
     }
 }
 

@@ -645,6 +645,14 @@ impl Game {
         let h = self.gfx.height as f32;
         (2.0, h - MM_H - 2.0, 2.0 + MM_W, h - 2.0)
     }
+    /// 上部バーの高さ（スマートフォンでは指で押しやすいよう高くする）
+    fn top_h(&self) -> f32 {
+        if self.gfx.compact {
+            mobile::TOP_H_COMPACT
+        } else {
+            TOP_H
+        }
+    }
     fn over_ui(&self, x: f32, y: f32) -> bool {
         if self.show_save {
             return true;
@@ -664,7 +672,7 @@ impl Game {
         if self.peace_pending() {
             return true;
         }
-        y < TOP_H || y > self.gfx.height as f32 - BOT_H
+        y < self.top_h() || y > self.gfx.height as f32 - BOT_H
     }
 
     fn notice(&mut self, s: &str) {
@@ -1584,7 +1592,7 @@ impl Game {
                     // 画面内の同種ユニットを全選択
                     let kind = u.kind;
                     let (w, hh) = (self.gfx.width as f32, self.gfx.height as f32);
-                    let a = self.screen_to_world(0.0, TOP_H);
+                    let a = self.screen_to_world(0.0, self.top_h());
                     let b = self.screen_to_world(w, hh - BOT_H);
                     let hs: Vec<Handle> = (0..self.world.units.len())
                         .filter(|&i| {
@@ -2832,7 +2840,7 @@ impl Game {
         let mut tx0 = x0;
         if let Some(ci) = self.act_cmd_icon(act) {
             if let Some(ibmp) = &self.art.cmd_icons[ci as usize] {
-                if bh >= 36.0 {
+                if bh >= 36.0 && !(self.gfx.compact && y1 <= self.top_h()) {
                     let isz = (bh - 10.0).min(34.0);
                     let iy = y0 + (bh - isz) * 0.5;
                     self.gfx.draw_bitmap(ibmp, x0 + 3.0, iy, x0 + 3.0 + isz, iy + isz);
@@ -3044,7 +3052,7 @@ impl Game {
             self.render_topbar_compact();
         } else {
         // ---- 上部バー（Age of Empires 風石彫パネル＋資源アイコン）
-        self.art.draw_stone_panel(&self.gfx, 0.0, 0.0, w, TOP_H);
+        self.art.draw_stone_panel(&self.gfx, 0.0, 0.0, w, self.top_h());
         let n = &self.world.nations[pl];
         let mut x = 8.0;
         let res = n.res;
@@ -3168,20 +3176,20 @@ impl Game {
         self.add_button(w - 162.0, 5.0, w - 84.0, 31.0, t!("外交 F2", "Diplo F2", "外交 F2"), "", 0, true, Act::Diplo, "");
         self.add_button(w - 80.0, 5.0, w - 4.0, 31.0, t!("ヘルプ F1", "Help F1", "帮助 F1"), "", 0, true, Act::Help, "");
         // 記録（上部バーに余地が無いので、その下の右端に置く）
-        self.add_button(w - 80.0, TOP_H + 4.0, w - 4.0, TOP_H + 30.0, t!("記録 F5", "Save F5", "存档 F5"), "", 0, true, Act::SaveMenu, t!("記録（セーブ・ロード）。10年ごとに自動でも記録する", "Save and load. The game also saves automatically every 10 years", "保存与读取。每10年也会自动保存"));
+        self.add_button(w - 80.0, self.top_h() + 4.0, w - 4.0, self.top_h() + 30.0, t!("記録 F5", "Save F5", "存档 F5"), "", 0, true, Act::SaveMenu, t!("記録（セーブ・ロード）。10年ごとに自動でも記録する", "Save and load. The game also saves automatically every 10 years", "保存与读取。每10年也会自动保存"));
         }
         let paused = self.paused;
         if paused {
-            self.gfx.text_shadow(t!("一時停止中（Space）", "Paused (Space)", "已暂停（Space）"), w / 2.0 - 120.0, TOP_H + 60.0, 240.0, 30.0, Font::BigCenter, [1.0, 1.0, 0.8, 1.0]);
+            self.gfx.text_shadow(t!("一時停止中（Space）", "Paused (Space)", "已暂停（Space）"), w / 2.0 - 120.0, self.top_h() + 60.0, 240.0, 30.0, Font::BigCenter, [1.0, 1.0, 0.8, 1.0]);
         } else if let Some(left) = self.world.descent_left() {
             let s = tf!("上帝降臨：上帝の軍が天下を統一するまで あと{}年", "Descent of the Deity: {} years until the Deity's army unifies the realm", "上帝降临：距上帝之军统一天下还有{}年", left.ceil() as i32);
-            self.gfx.text_shadow(&s, w / 2.0 - 320.0, TOP_H + 60.0, 640.0, 30.0, Font::BigCenter, [1.0, 0.75, 0.35, 1.0]);
+            self.gfx.text_shadow(&s, w / 2.0 - 320.0, self.top_h() + 60.0, 640.0, 30.0, Font::BigCenter, [1.0, 0.75, 0.35, 1.0]);
         } else if self.cmd_hold() {
-            self.gfx.text_shadow(t!("指揮中（時は止まっている。命令を出すか選択を解くと進む）", "Commanding: time stopped (give an order or deselect)", "指挥中（时间已停止。下达命令或取消选择后继续）"), w / 2.0 - 320.0, TOP_H + 60.0, 640.0, 30.0, Font::BigCenter, [0.8, 0.95, 1.0, 1.0]);
+            self.gfx.text_shadow(t!("指揮中（時は止まっている。命令を出すか選択を解くと進む）", "Commanding: time stopped (give an order or deselect)", "指挥中（时间已停止。下达命令或取消选择后继续）"), w / 2.0 - 320.0, self.top_h() + 60.0, 640.0, 30.0, Font::BigCenter, [0.8, 0.95, 1.0, 1.0]);
         }
 
         // ---- 連合情報
-        let mut cy = TOP_H + 6.0;
+        let mut cy = self.top_h() + 6.0;
         let years = self.world.years;
         let coal: Vec<String> = self
             .world
@@ -3217,7 +3225,7 @@ impl Game {
 
         // ---- メッセージ
         let now = self.world.time;
-        let mut y = TOP_H + 8.0;
+        let mut y = self.top_h() + 8.0;
         let msgs: Vec<(String, [f32; 3], f32)> = self.world.msgs.iter().rev().take(if self.gfx.compact { 4 } else { 7 }).filter(|m| now - m.time < 25.0).map(|m| (m.text.clone(), m.color, now - m.time)).collect();
         for (t, c, age) in msgs.into_iter().rev() {
             let a = if age > 20.0 { (25.0 - age) / 5.0 } else { 1.0 };
@@ -3233,7 +3241,7 @@ impl Game {
             let (title, text) = (b.title.clone(), b.text.clone());
             let bw = 760.0f32.min(w - 40.0);
             let x0 = (w - bw) / 2.0;
-            let y0 = TOP_H + 90.0;
+            let y0 = self.top_h() + 90.0;
             let th = self.gfx.measure_h(&text, Font::NormalCenter, bw - 40.0).max(24.0);
             let bh = 66.0 + th + 14.0;
             self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + bw, y0 + bh);
@@ -3276,7 +3284,7 @@ impl Game {
             let s = if mine { 1.6 } else { 1.0 };
             self.gfx.fill_rect(x - s, y - s, x + s, y + s, if mine { [1.0, 1.0, 1.0, 1.0] } else { c4(darker(c, 0.6), 1.0) });
         }
-        let a = self.screen_to_world(0.0, TOP_H);
+        let a = self.screen_to_world(0.0, self.top_h());
         let b = self.screen_to_world(w, h - BOT_H);
         self.gfx.stroke_rect(
             (mx0 + a.x * sxs).max(mx0),
