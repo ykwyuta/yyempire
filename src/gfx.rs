@@ -99,9 +99,10 @@ impl Gfx {
     pub fn update_scale(&mut self) {
         let (pw, ph) = (self.pw as f32, self.ph as f32);
         if self.compact {
-            // スマートフォン：画面の高さを約 470 として文字を大きくする（最小 900×420 に収める）
+            // タッチ端末：UI を約 1000×480 に収めて文字を大きくする（最小 900×420）。
+            // スマートフォンは高さで、iPad などのタブレットは幅で大きさが決まる
             let cap = (ph / 420.0).min(pw / 900.0).max(0.3);
-            self.ui = (ph / 480.0 * self.user_scale / 1.15).clamp(0.3, cap);
+            self.ui = ((ph / 480.0).min(pw / 1000.0) * self.user_scale / 1.15).clamp(0.3, cap);
             self.width = ((pw / self.ui).round() as u32).max(1);
             self.height = ((ph / self.ui).round() as u32).max(1);
             return;

@@ -558,11 +558,19 @@ let pw = 0;
 let ph = 0;
 // 指で操作する端末か（?touch=1 / ?touch=0 で強制）
 const QS = new URLSearchParams(location.search);
-const coarse = () => (QS.has('touch') ? QS.get('touch') === '1' : matchMedia('(pointer: coarse)').matches);
+const coarse = () => {
+  if (QS.has('touch')) return QS.get('touch') === '1';
+  if (matchMedia('(pointer: coarse)').matches) return true;
+  // iPad は「デスクトップ用サイト」表示で Mac を名乗ることがある（キーボード・トラックパッドを付けたときなど）
+  return /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
+};
+// 指で操作する端末なら、縁の余白などのための目印を付ける
+document.documentElement.classList.toggle('touch', coarse());
 // スマートフォンの小さい画面（?compact=1 / ?compact=0 で強制）
 function isCompact() {
   if (QS.has('compact')) return QS.get('compact') === '1';
-  return coarse() && Math.min(window.innerWidth, window.innerHeight) < 600;
+  // スマートフォンも iPad などのタブレットも、指で操作する端末はタッチ向けの画面にする
+  return coarse();
 }
 let compact = false;
 function fit() {

@@ -22,10 +22,8 @@
       body { touch-action: none; }
       /* 画面の縁からの余白（指で操作する端末では、ノッチ・ホームバー・戻るジェスチャーの領域を避ける） */
       :root { --sl: 0px; --sr: 0px; --st: 0px; --sb: 0px; }
-      @media (pointer: coarse) {
-        :root { --sl: max(env(safe-area-inset-left), 14px); --sr: max(env(safe-area-inset-right), 14px);
+      :root.touch { --sl: max(env(safe-area-inset-left), 14px); --sr: max(env(safe-area-inset-right), 14px);
           --st: max(env(safe-area-inset-top), 10px); --sb: max(env(safe-area-inset-bottom), 14px); }
-      }
       canvas { position: fixed; left: var(--sl); top: var(--st); display: block;
         width: calc(100vw - var(--sl) - var(--sr)); height: calc(100vh - var(--st) - var(--sb)); height: calc(100dvh - var(--st) - var(--sb)); }
       #ui { touch-action: none; outline: none; }
@@ -34,7 +32,8 @@
         gap: 18px; background: rgba(18, 15, 12, 0.94); color: #e8d8b0; font: 18px "Noto Sans JP", sans-serif; text-align: center; padding: 24px; }
       #rotate .phone { width: 44px; height: 76px; border: 3px solid #d4a246; border-radius: 8px; animation: rot 2.4s ease-in-out infinite; }
       @keyframes rot { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
-      @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+      /* 縦持ちでは文字が小さくなりすぎるので、横向きを促す（スマートフォン・タブレットとも） */
+      @media (orientation: portrait) { :root.touch #rotate { display: flex; } }
       #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
         color: #e8d8b0; font: 18px "Yu Gothic UI", "Noto Sans JP", sans-serif; background: #120f0c; gap: 12px; }
       #loading h1 { margin: 0; font-size: 40px; letter-spacing: 0.3em; color: #d4a246; }
