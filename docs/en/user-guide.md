@@ -54,8 +54,8 @@ The language button on the title screen (for example "English ▸") cycles the g
 
 The game starts in 770 BC. You win by **destroying every other state before 221 BC**.
 
-- Time flows at the same speed for every state. In the Spring and Autumn period, 1 year = 8 seconds.
-- In 453 BC the Warring States period begins, and time slows to 1 year = 16 seconds.
+- Time flows at the same speed for every state. In the Spring and Autumn period, 1 year = 16 seconds.
+- In 453 BC the Warring States period begins, and time slows to 1 year = 32 seconds.
 - If you lose all your cities, your state is destroyed and you lose.
 - If you have not unified China by 221 BC, the [Descent of the Supreme Deity](#15-the-descent-of-the-supreme-deity-time-limit) begins and the game ends in defeat.
 
@@ -195,8 +195,8 @@ When one state grows far stronger than the rest, its neighbours ally against it 
 
 ![Chronicle](../images/chronicle.jpg)
 
-- **Spring and Autumn period** (770–453 BC): 1 year = 8 seconds.
-- **Warring States period** (from 453 BC): 1 year = 16 seconds. In 453 BC **the partition of Jin** splits Jin into Han, Zhao and Wei.
+- **Spring and Autumn period** (770–453 BC): 1 year = 16 seconds.
+- **Warring States period** (from 453 BC): 1 year = 32 seconds. In 453 BC **the partition of Jin** splits Jin into Han, Zhao and Wei.
 - **Era bonuses** are the same for every state, so no single state races ahead.
 
 **Historical events (83 in total)**
