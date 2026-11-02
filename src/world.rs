@@ -68,8 +68,9 @@ impl V2 {
     }
 }
 
-pub const SEC_PER_YEAR: f32 = 4.0;
-/// 戦国時代は時間の流れを遅くする（1年＝8秒）
+/// 1年の長さ（秒）。上帝降臨までに天下統一を目指せるよう、ゆっくり流す
+pub const SEC_PER_YEAR: f32 = 8.0;
+/// 戦国時代は時間の流れを遅くする（1年＝16秒）
 pub const WARRING_SLOW: f32 = 2.0;
 pub const START_BC: f32 = 770.0;
 pub const WARRING_BC: f32 = 453.0;
