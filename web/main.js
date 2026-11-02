@@ -568,8 +568,9 @@ let compact = false;
 function fit() {
   // スマートフォンでは描く画素数を抑えて電池と発熱を減らす
   const dpr = Math.min(window.devicePixelRatio || 1, coarse() ? 2 : 3);
-  const w = Math.max(1, Math.round(window.innerWidth * dpr));
-  const h = Math.max(1, Math.round(window.innerHeight * dpr));
+  // 縁の余白を除いた、実際に描く領域の大きさ
+  const w = Math.max(1, Math.round((uiCanvas.clientWidth || window.innerWidth) * dpr));
+  const h = Math.max(1, Math.round((uiCanvas.clientHeight || window.innerHeight) * dpr));
   if (w === pw && h === ph) return false;
   pw = w;
   ph = h;
@@ -609,7 +610,11 @@ const held = new Set();
 function bindInput() {
   const pos = (e) => {
     const r = uiCanvas.getBoundingClientRect();
-    return [((e.clientX - r.left) / r.width) * pw, ((e.clientY - r.top) / r.height) * ph];
+    const x = ((e.clientX - r.left) / r.width) * pw;
+    const y = ((e.clientY - r.top) / r.height) * ph;
+    // 縁の余白に触れたら、いちばん近い画面の端に触れたことにする
+    if (e.pointerType === 'touch') return [Math.min(Math.max(x, 1), pw - 1), Math.min(Math.max(y, 1), ph - 1)];
+    return [x, y];
   };
   const btn = (b) => (b === 0 ? 0 : b === 2 ? 1 : b === 1 ? 2 : -1);
   uiCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -623,7 +628,7 @@ function bindInput() {
   let two = null; // 2本指の操作
   let ignore = false; // 2本指のあと、全部の指が離れるまで無視
   const LONG_MS = 420;
-  const slop = () => 10 * (pw / Math.max(1, window.innerWidth));
+  const slop = () => 10 * (pw / Math.max(1, uiCanvas.clientWidth || window.innerWidth));
   const mid = () => {
     const ps = [...touches.values()];
     return [(ps[0][0] + ps[1][0]) / 2, (ps[0][1] + ps[1][1]) / 2, Math.hypot(ps[0][0] - ps[1][0], ps[0][1] - ps[1][1])];
@@ -737,6 +742,26 @@ function bindInput() {
     else endOne(x, y);
     one = null;
   }
+  // OS が触れた指を横取りした（画面端のジェスチャーなど）：タップにしない
+  function touchCancel(e) {
+    if (!touches.has(e.pointerId)) return;
+    const [x, y] = touches.get(e.pointerId);
+    touches.delete(e.pointerId);
+    if (two) {
+      if (touches.size < 2) {
+        wasm.yy_event(2, 2, x, y);
+        two = null;
+        ignore = touches.size > 0;
+      }
+      return;
+    }
+    if (touches.size === 0) ignore = false;
+    if (one && one.id === e.pointerId) {
+      clearTimeout(one.timer);
+      endOne(x, y);
+      one = null;
+    }
+  }
   // タッチとマウスの切り替えを伝える（タッチでは画面端のスクロールや常時の説明表示をしない）
   let touchNow = null;
   function setTouch(t) {
@@ -751,7 +776,7 @@ function bindInput() {
     wasm.yy_event(0, x, y, 0);
   });
   uiCanvas.addEventListener('pointercancel', (e) => {
-    if (e.pointerType === 'touch') touchUp(e);
+    if (e.pointerType === 'touch') touchCancel(e);
   });
   uiCanvas.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'touch') {
@@ -776,6 +801,16 @@ function bindInput() {
     const [x, y] = pos(e);
     wasm.yy_event(2, b, x, y);
   });
+  // 縁の余白（キャンバスの外）で始まったタッチも受け付ける
+  const inMargin = (e) => e.pointerType === 'touch' && (e.target === document.body || e.target === document.documentElement);
+  window.addEventListener('pointerdown', (e) => {
+    if (!inMargin(e)) return;
+    e.preventDefault();
+    touchDown(e);
+  }, { passive: false });
+  window.addEventListener('pointermove', (e) => inMargin(e) && touchMove(e));
+  window.addEventListener('pointerup', (e) => inMargin(e) && touchUp(e));
+  window.addEventListener('pointercancel', (e) => inMargin(e) && touchCancel(e));
   uiCanvas.addEventListener('pointerenter', () => (pointerInside = true));
   uiCanvas.addEventListener('pointerleave', () => (pointerInside = false));
   uiCanvas.addEventListener(

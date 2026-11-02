@@ -1782,6 +1782,19 @@ impl Game {
                 return Some(if b.enabled { b.act } else { Act::Noop });
             }
         }
+        // タッチは指先がずれやすいので、すぐ近くのボタンも拾う
+        if self.touch {
+            let near = self
+                .buttons
+                .iter()
+                .rev()
+                .map(|b| ((b.x0 - x).max(x - b.x1).max(0.0).hypot((b.y0 - y).max(y - b.y1).max(0.0)), b))
+                .filter(|(d, _)| *d <= 10.0)
+                .min_by(|a, b| a.0.total_cmp(&b.0));
+            if let Some((_, b)) = near {
+                return Some(if b.enabled { b.act } else { Act::Noop });
+            }
+        }
         None
     }
 
