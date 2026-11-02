@@ -40,6 +40,7 @@ impl Game {
         let real_h = self.gfx.height;
         if !self.gfx.compact || real_h >= VIRTUAL_H {
             f(self);
+            self.close_button();
             return;
         }
         let max = (VIRTUAL_H - real_h) as f32;
@@ -67,6 +68,20 @@ impl Game {
         let y = (h - bar_h) * (sc / max);
         self.gfx.fill_round(w - 7.0, 2.0, w - 2.0, h - 2.0, 2.5, [0.0, 0.0, 0.0, 0.35]);
         self.gfx.fill_round(w - 7.0, y + 2.0, w - 2.0, y + bar_h - 2.0, 2.5, [1.0, 0.86, 0.5, 0.85]);
+        self.close_button();
+    }
+
+    /// タッチ向けの画面：一覧をいつでも閉じられる ✕（右上に固定。スクロールしても動かない）
+    fn close_button(&mut self) {
+        if !self.gfx.compact {
+            return;
+        }
+        let w = self.gfx.width as f32;
+        let (x0, y0, x1, y1) = (w - 58.0, 3.0, w - 10.0, 51.0);
+        self.gfx.fill_round(x0 - 2.0, y0 - 2.0, x1 + 2.0, y1 + 2.0, 6.0, [0.0, 0.0, 0.0, 0.55]);
+        self.add_button(x0, y0, x1, y1, "", "", 0, true, Act::Cancel, t!("閉じる", "Close", "关闭"));
+        self.gfx.stroke_round(x0, y0, x1, y1, 4.0, 2.0, [1.0, 0.85, 0.4, 1.0]);
+        self.gfx.text_shadow("✕", x0, y0 + 12.0, x1 - x0, 26.0, Font::BigCenter, [1.0, 0.92, 0.7, 1.0]);
     }
 
     /// タッチした場所に何があるか（実ピクセル）

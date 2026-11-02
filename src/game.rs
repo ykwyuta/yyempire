@@ -1851,6 +1851,14 @@ impl Game {
                 if self.mode != Mode::Normal {
                     self.mode = Mode::Normal;
                     self.place_tap = None;
+                } else if self.overlay_open() {
+                    // 開いている一覧を閉じる（Esc と同じ）
+                    self.show_summon = false;
+                    self.show_diplo = false;
+                    self.show_help = false;
+                    self.show_chron = false;
+                    self.show_market = false;
+                    self.show_save = false;
                 } else {
                     self.clear_sel();
                 }
