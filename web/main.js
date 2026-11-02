@@ -842,14 +842,22 @@ function bindInput() {
     for (const vk of held) wasm.yy_event(4, vk, 0, 0);
     held.clear();
   });
-  window.addEventListener('resize', () => {
-    const c = isCompact();
-    if (c !== compact) {
-      compact = c;
-      wasm.yy_event(8, c ? 1 : 0, 0, 0);
-    }
-    if (fit()) wasm.yy_event(6, pw, ph, 0);
-  });
+  window.addEventListener('resize', checkSize);
+  window.visualViewport?.addEventListener('resize', checkSize);
+  screen.orientation?.addEventListener?.('change', checkSize);
+}
+
+// 画面の大きさが変わったら描く領域を合わせる。
+// スマートフォンでは回転・全画面・縁の余白（safe-area）の変化がリサイズの通知より遅れて反映されることがあるので、
+// 毎フレームも確かめる（表示と描画の縦横比がずれると画面がつぶれる）
+function checkSize() {
+  if (!wasm) return;
+  const c = isCompact();
+  if (c !== compact) {
+    compact = c;
+    wasm.yy_event(8, c ? 1 : 0, 0, 0);
+  }
+  if (fit()) wasm.yy_event(6, pw, ph, 0);
 }
 
 // ------------------------------------------------------------------ 起動
@@ -889,6 +897,7 @@ async function main() {
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
     last = now;
     try {
+      checkSize();
       wasm.yy_frame(dt, document.hasFocus() && pointerInside ? 1 : 0);
     } catch (e) {
       console.error(e);
