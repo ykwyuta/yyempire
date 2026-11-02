@@ -3,6 +3,7 @@
 mod chronicle;
 mod heroes;
 mod market;
+mod mobile;
 mod save;
 mod tutorial;
 
@@ -131,6 +132,8 @@ enum Act {
     /// 表示言語を切り替える
     Lang,
     SaveMenu,
+    /// 選択・建設の取り消し（タッチ操作用の ✕）
+    Cancel,
     SaveSlot(u8),
     LoadSlot(u8),
     ExportSlot(u8),
@@ -198,6 +201,16 @@ pub struct Game {
     show_summon: bool,
     /// 記録（セーブ・ロード）画面
     show_save: bool,
+    /// いまの入力がタッチ操作か
+    touch: bool,
+    /// スマートフォン向け画面で一覧（外交・交易など）をなぞってスクロールした量（UI 座標）
+    ov_scroll: f32,
+    ov_key: u8,
+    ov_max: f32,
+    /// タッチ操作でツールチップを出しておく時刻
+    tip_until: f32,
+    /// タッチ操作の建設：1回目のタップで場所を示し、同じ場所を2回目にタップで建てる
+    place_tap: Option<(f32, f32)>,
     /// 最後に記録した年（自動記録の間隔）
     autosave_years: f32,
     /// タイトル画面で選ぶ英霊モード（既定は無効）
@@ -329,6 +342,12 @@ impl Game {
             show_market: false,
             show_summon: false,
             show_save: false,
+            touch: false,
+            ov_scroll: 0.0,
+            ov_key: 0,
+            ov_max: 0.0,
+            tip_until: 0.0,
+            place_tap: None,
             autosave_years: 0.0,
             heroic_opt: false,
             chron_scroll: 0,
@@ -911,7 +930,7 @@ impl Game {
         if self.keys[VK_DOWN as usize] {
             d.y += 1.0;
         }
-        if focused && self.mdrag.is_none() && self.ldown.is_none() {
+        if focused && !self.touch && self.mdrag.is_none() && self.ldown.is_none() {
             if mx <= 3.0 && mx >= 0.0 {
                 d.x -= 1.0;
             }
@@ -948,6 +967,25 @@ impl Game {
                     self.minimap_jump(x, y);
                 }
             }
+            Ev::Compact(c) => {
+                self.gfx.set_compact(c);
+                self.clamp_cam();
+                if self.screen == Screen::Title {
+                    self.fit_title_camera();
+                }
+            }
+            Ev::Touch(t) => {
+                self.touch = t;
+                if t {
+                    self.tip_until = self.clock + 2.5;
+                }
+            }
+            Ev::Scroll(dy) => {
+                self.ov_scroll = (self.ov_scroll - dy / self.gfx.ui).clamp(0.0, self.ov_max);
+            }
+            Ev::Wheel(d) if self.ov_max > 0.0 && self.overlay_open() => {
+                self.ov_scroll = (self.ov_scroll - d * 60.0).clamp(0.0, self.ov_max);
+            }
             Ev::Wheel(d) => {
                 if self.screen == Screen::Playing && !self.over_ui(self.mouse.0, self.mouse.1) {
                     let before = self.screen_to_world(self.mouse.0, self.mouse.1);
@@ -979,7 +1017,13 @@ impl Game {
                             return false;
                         }
                         match self.mode {
+                            Mode::Place(_) if self.touch && self.place_tap.map_or(true, |(px, py)| (px - x).abs() > 22.0 || (py - y).abs() > 22.0) => {
+                                // タッチ：1回目のタップは置き場所を見せるだけ
+                                self.place_tap = Some((x, y));
+                                self.notice(t!("同じ場所をもう一度タップすると建てる", "Tap the same spot again to build", "再次点击同一位置即可建造"));
+                            }
                             Mode::Place(k) => {
+                                self.place_tap = None;
                                 // Ctrl を押しながら置くと建設の予約（続けて置ける）
                                 let queue = self.keys[VK_CONTROL as usize];
                                 self.try_place(k, queue);
@@ -1032,6 +1076,16 @@ impl Game {
                     0 => {
                         self.mm_drag = false;
                         if let Some((sx, sy)) = self.ldown.take() {
+                            // タッチ：自国の部隊を選んでいるとき、自国の兵・民以外をタップすれば命令（右クリックと同じ）
+                            let tap = (sx - x).abs() < 12.0 && (sy - y).abs() < 12.0;
+                            if self.touch && tap && self.screen == Screen::Playing && !self.own_sel().is_empty() {
+                                let wp = self.screen_to_world(x, y);
+                                let own_unit = self.unit_at(wp).and_then(|h| self.world.unit(h)).map_or(false, |u| u.nation as usize == self.world.player);
+                                if !own_unit {
+                                    self.right_click_world(wp);
+                                    return false;
+                                }
+                            }
                             self.select_release(sx, sy, x, y);
                         }
                     }
@@ -1485,7 +1539,9 @@ impl Game {
             if u.nation as usize != self.world.player && !self.seen(u.pos) {
                 continue;
             }
-            let r = if u.kind == UnitKind::Worker { 0.45 } else { 0.55 };
+            let r: f32 = if u.kind == UnitKind::Worker { 0.45 } else { 0.55 };
+            // タッチは指の太さぶん広く拾う（画面上で約 18 単位）
+            let r = if self.touch { r.max(18.0 / self.zoom) } else { r };
             let d = u.pos.dist(p);
             if d < r && best.map_or(true, |b| d < b.0) {
                 best = Some((d, self.world.uh(i)));
@@ -1738,6 +1794,8 @@ impl Game {
         match a {
             Act::Noop => {}
             Act::Start => {
+                // 押した場所に出るボタンの説明を、始めた直後に出さない
+                self.tip_until = 0.0;
                 if let Some(n) = self.title_sel {
                     self.world.player = n;
                     self.world.heroic = self.heroic_opt;
@@ -1767,6 +1825,14 @@ impl Game {
                 crate::lang::set_lang(l);
                 crate::platform::save_lang(l);
                 self.gfx.reload_fonts();
+            }
+            Act::Cancel => {
+                if self.mode != Mode::Normal {
+                    self.mode = Mode::Normal;
+                    self.place_tap = None;
+                } else {
+                    self.clear_sel();
+                }
             }
             Act::SaveMenu => {
                 self.show_save = !self.show_save;
@@ -1818,6 +1884,7 @@ impl Game {
                     self.notice(t!("資源が足りない", "Not enough resources", "资源不足"));
                 } else {
                     self.mode = Mode::Place(k);
+                    self.place_tap = None;
                 }
             }
             Act::Upgrade => {
@@ -2101,30 +2168,37 @@ impl Game {
                 self.render_hero_labels();
                 self.render_build_queue();
             }
+            // スマートフォン向け画面では、縦に収まらない一覧は指でなぞってスクロールする
+            let key = self.overlay_key();
+            if key != self.ov_key {
+                self.ov_key = key;
+                self.ov_scroll = 0.0;
+            }
+            self.ov_max = 0.0;
             if self.screen == Screen::Title {
                 self.render_title();
                 if self.show_save {
-                    self.render_save();
+                    self.scrolled(Self::render_save);
                 }
             } else {
                 self.render_hud();
                 if self.show_diplo {
-                    self.render_diplo();
+                    self.scrolled(Self::render_diplo);
                 }
                 if self.show_help {
-                    self.render_help();
+                    self.scrolled(Self::render_help);
                 }
                 if self.show_chron {
-                    self.render_chron();
+                    self.scrolled(Self::render_chron);
                 }
                 if self.show_market {
-                    self.render_market();
+                    self.scrolled(Self::render_market);
                 }
                 if self.show_summon {
-                    self.render_summon();
+                    self.scrolled(Self::render_summon);
                 }
                 if self.show_save {
-                    self.render_save();
+                    self.scrolled(Self::render_save);
                 }
                 if self.peace_pending() {
                     self.render_peace_ask();
@@ -2841,6 +2915,8 @@ impl Game {
         self.gfx.text_shadow(title, px, 19.0, 380.0, 56.0, tf, [1.0, 0.86, 0.42, 1.0]);
         self.gfx.text_shadow(t!("— 中華統一への道 —", "— The Road to Unification —", "— 中华统一之路 —"), px, 76.0, 380.0, 28.0, Font::BigCenter, [0.96, 0.90, 0.78, 1.0]);
 
+        let compact = self.gfx.compact;
+        if !compact || self.title_sel.is_none() {
         self.art.draw_inset_box(&self.gfx, px + 18.0, 132.0, w - 18.0, 306.0);
         self.gfx.text(
             t!("紀元前770年、周の東遷。数多の諸侯が並び立つ春秋の世から、七雄が争う戦国の世まで、時は全ての国に等しく流れる。\n\n地図上の国都をクリックして、率いる国を選べ。金の印は戦国の七雄（生産力が高い）。", "770 BC: the Zhou court moves east. From the Spring and Autumn period of countless lords to the Warring States of seven great powers, time flows equally for every state.\n\nClick a capital on the map to choose the state you will lead. Gold marks are the Seven Powers of the Warring States (high production).", "公元前770年，周室东迁。从诸侯林立的春秋之世，到七雄争霸的战国之世，时间对所有国家一视同仁。\n\n点击地图上的国都，选择你要率领的国家。金色标记为战国七雄（生产力高）。"),
@@ -2851,23 +2927,26 @@ impl Game {
             Font::Normal,
             [0.90, 0.86, 0.78, 1.0],
         );
+        }
         if let Some(i) = self.title_sel {
             let n = &self.world.nations[i];
             let d = &NATIONS[i];
-            self.art.draw_inset_box(&self.gfx, px + 18.0, 316.0, w - 18.0, 522.0);
-            self.art.draw_corner_ornaments(&self.gfx, px + 20.0, 318.0, w - 20.0, 520.0, 12.0);
+            // スマートフォンでは説明文の欄を隠して、国の情報をその位置に詰める
+            let oy = if compact { 132.0 - 316.0 } else { 0.0 };
+            self.art.draw_inset_box(&self.gfx, px + 18.0, oy + 316.0, w - 18.0, oy + 522.0);
+            self.art.draw_corner_ornaments(&self.gfx, px + 20.0, oy + 318.0, w - 20.0, oy + 520.0, 12.0);
             if let Some(cap_ic) = self.art.bld_icon(BKind::Capital) {
-                self.gfx.draw_bitmap(cap_ic, px + 30.0, 328.0, px + 78.0, 376.0);
+                self.gfx.draw_bitmap(cap_ic, px + 30.0, oy + 328.0, px + 78.0, oy + 376.0);
             }
-            self.gfx.fill_rect(px + 86.0, 336.0, px + 104.0, 368.0, c4(n.color, 1.0));
-            self.gfx.stroke_rect(px + 86.0, 336.0, px + 104.0, 368.0, 1.2, [0.92, 0.78, 0.40, 1.0]);
-            self.gfx.text_shadow(crate::lang::tx(n.name), px + 112.0, 332.0, 230.0, 40.0, Font::Big, [1.0, 0.95, 0.85, 1.0]);
-            self.gfx.text(crate::lang::tx(d.desc), px + 32.0, 382.0, 316.0, 44.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
+            self.gfx.fill_rect(px + 86.0, oy + 336.0, px + 104.0, oy + 368.0, c4(n.color, 1.0));
+            self.gfx.stroke_rect(px + 86.0, oy + 336.0, px + 104.0, oy + 368.0, 1.2, [0.92, 0.78, 0.40, 1.0]);
+            self.gfx.text_shadow(crate::lang::tx(n.name), px + 112.0, oy + 332.0, 230.0, 40.0, Font::Big, [1.0, 0.95, 0.85, 1.0]);
+            self.gfx.text(crate::lang::tx(d.desc), px + 32.0, oy + 382.0, 316.0, 44.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
             let s = tf!("生産力：×{:.2}{}", "Production: ×{:.2}{}", "生产力：×{:.2}{}", d.bias, if d.seven { t!("（戦国七雄）", " (Seven Powers)", "（战国七雄）") } else { "" });
-            self.gfx.text(&s, px + 32.0, 426.0, 316.0, 20.0, Font::Normal, [0.98, 0.86, 0.48, 1.0]);
+            self.gfx.text(&s, px + 32.0, oy + 426.0, 316.0, 20.0, Font::Normal, [0.98, 0.86, 0.48, 1.0]);
             let cities = self.world.blds.iter().filter(|b| b.alive && b.nation as usize == i && b.kind.city()).count();
             let s = tf!("初期城邑：{}　君主家：{}", "Cities: {}   House: {}", "初始城邑：{}　君主家：{}", cities, crate::lang::tx(INITIAL_HOUSE[i]));
-            self.gfx.text(&s, px + 32.0, 448.0, 316.0, 20.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
+            self.gfx.text(&s, px + 32.0, oy + 448.0, 316.0, 20.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
             let diff = if d.seven {
                 t!("難易度：易", "Difficulty: Easy", "难度：易")
             } else if d.bias >= 0.95 {
@@ -2875,7 +2954,7 @@ impl Game {
             } else {
                 t!("難易度：難", "Difficulty: Hard", "难度：难")
             };
-            self.gfx.text(diff, px + 32.0, 470.0, 316.0, 20.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
+            self.gfx.text(diff, px + 32.0, oy + 470.0, 316.0, 20.0, Font::Normal, [0.88, 0.84, 0.76, 1.0]);
             // 史実に基づく国の特徴（説明はツールチップ）
             let trs: Vec<&Trait> = all_traits_of(i).collect();
             if !trs.is_empty() {
@@ -2884,13 +2963,13 @@ impl Game {
                     .map(|t| if t.from_bc < START_BC as i32 { tf!("{}（前{}年〜）", "{} (from {} BC)", "{}（前{}年起）", crate::lang::tx(t.name), t.from_bc) } else if t.to_bc > END_BC as i32 { tf!("{}（〜前{}年）", "{} (until {} BC)", "{}（至前{}年）", crate::lang::tx(t.name), t.to_bc) } else { crate::lang::tx(t.name).to_string() })
                     .collect();
                 let s = tf!("特徴：{}", "Traits: {}", "特点：{}", names.join(sep()));
-                self.gfx.text(&s, px + 32.0, 492.0, 316.0, 22.0, Font::Normal, [0.70, 0.92, 1.0, 1.0]);
+                self.gfx.text(&s, px + 32.0, oy + 492.0, 316.0, 22.0, Font::Normal, [0.70, 0.92, 1.0, 1.0]);
                 let tip: Vec<String> = trs.iter().map(|t| format!("【{}】{}", crate::lang::tx(t.name), crate::lang::tx(t.desc))).collect();
                 self.buttons.push(Button {
                     x0: px + 32.0,
-                    y0: 490.0,
+                    y0: oy + 490.0,
                     x1: w - 30.0,
-                    y1: 514.0,
+                    y1: oy + 514.0,
                     label: String::new(),
                     key: 0,
                     enabled: true,
@@ -2898,7 +2977,12 @@ impl Game {
                     tip: tip.join("\n"),
                 });
             }
-            self.add_button(px + 50.0, 530.0, w - 50.0, 576.0, t!("この国で覇業を開始", "Begin your conquest", "以此国开始霸业"), "", 0, true, Act::Start, "");
+            let sy = if compact { (oy + 528.0).min(h - 138.0) } else { 530.0 };
+            self.add_button(px + 50.0, sy, w - 50.0, sy + if compact { 40.0 } else { 46.0 }, t!("この国で覇業を開始", "Begin your conquest", "以此国开始霸业"), "", 0, true, Act::Start, "");
+        }
+        if compact {
+            self.render_title_buttons_compact(px);
+            return;
         }
         let ty = (h - 128.0).max(592.0);
         // 記録から続ける（空きがあれば独立した行、狭ければ英霊モードの行と並べる）
@@ -2929,7 +3013,7 @@ impl Game {
         // タイトル画面のツールチップ
         let (mx, my) = self.mouse;
         let tip = self.buttons.iter().find(|b| mx >= b.x0 && mx <= b.x1 && my >= b.y0 && my <= b.y1 && !b.tip.is_empty()).map(|b| b.tip.clone());
-        if let Some(t) = tip.filter(|_| !self.show_save) {
+        if let Some(t) = tip.filter(|_| !self.show_save && !(self.touch && self.clock > self.tip_until)) {
             // 説明の行数に合わせて上へ伸ばす
             let x0 = px + 24.0;
             let th = self.gfx.measure_h(&t, Font::Small, w - x0 - 40.0) + 10.0;
@@ -2943,6 +3027,9 @@ impl Game {
     fn render_hud(&mut self) {
         let (w, h) = (self.gfx.width as f32, self.gfx.height as f32);
         let pl = self.world.player;
+        if self.gfx.compact {
+            self.render_topbar_compact();
+        } else {
         // ---- 上部バー（Age of Empires 風石彫パネル＋資源アイコン）
         self.art.draw_stone_panel(&self.gfx, 0.0, 0.0, w, TOP_H);
         let n = &self.world.nations[pl];
@@ -3069,6 +3156,8 @@ impl Game {
         self.add_button(w - 80.0, 5.0, w - 4.0, 31.0, t!("ヘルプ F1", "Help F1", "帮助 F1"), "", 0, true, Act::Help, "");
         // 記録（上部バーに余地が無いので、その下の右端に置く）
         self.add_button(w - 80.0, TOP_H + 4.0, w - 4.0, TOP_H + 30.0, t!("記録 F5", "Save F5", "存档 F5"), "", 0, true, Act::SaveMenu, t!("記録（セーブ・ロード）。10年ごとに自動でも記録する", "Save and load. The game also saves automatically every 10 years", "保存与读取。每10年也会自动保存"));
+        }
+        let paused = self.paused;
         if paused {
             self.gfx.text_shadow(t!("一時停止中（Space）", "Paused (Space)", "已暂停（Space）"), w / 2.0 - 120.0, TOP_H + 60.0, 240.0, 30.0, Font::BigCenter, [1.0, 1.0, 0.8, 1.0]);
         } else if let Some(left) = self.world.descent_left() {
@@ -3116,11 +3205,12 @@ impl Game {
         // ---- メッセージ
         let now = self.world.time;
         let mut y = TOP_H + 8.0;
-        let msgs: Vec<(String, [f32; 3], f32)> = self.world.msgs.iter().rev().take(7).filter(|m| now - m.time < 25.0).map(|m| (m.text.clone(), m.color, now - m.time)).collect();
+        let msgs: Vec<(String, [f32; 3], f32)> = self.world.msgs.iter().rev().take(if self.gfx.compact { 4 } else { 7 }).filter(|m| now - m.time < 25.0).map(|m| (m.text.clone(), m.color, now - m.time)).collect();
         for (t, c, age) in msgs.into_iter().rev() {
             let a = if age > 20.0 { (25.0 - age) / 5.0 } else { 1.0 };
-            let mh = self.gfx.measure_h(&t, Font::Normal, w * 0.55).clamp(20.0, 40.0);
-            self.gfx.text_shadow(&t, 10.0, y, w * 0.55, mh, Font::Normal, [c[0], c[1], c[2], a]);
+            let mw = if self.gfx.compact { w * 0.5 } else { w * 0.55 };
+            let mh = self.gfx.measure_h(&t, Font::Normal, mw).clamp(20.0, 40.0);
+            self.gfx.text_shadow(&t, 10.0, y, mw, mh, Font::Normal, [c[0], c[1], c[2], a]);
             y += mh;
         }
 
@@ -3198,6 +3288,12 @@ impl Game {
             self.add_button(ix + iw - 176.0, h - 58.0, ix + iw - 14.0, h - 14.0, t!("英霊召喚", "Summon Spirit", "召唤英灵"), t!("民を生贄に", "sacrifice workers", "献祭民"), 'H' as u32, self.world.hero_of(pl).is_none(), Act::Summon, tip);
         }
 
+        // スマートフォン：選択や建設場所選びを指で解く ✕
+        if self.gfx.compact && (self.mode != Mode::Normal || !self.sel.is_empty() || self.sel_b.is_some()) {
+            let tip = if self.mode != Mode::Normal { t!("取り消す", "Cancel", "取消") } else { t!("選択を解く", "Deselect", "取消选择") };
+            self.add_button(ix + iw - 46.0, py + 10.0, ix + iw - 8.0, py + 48.0, "✕", "", 0, true, Act::Cancel, tip);
+        }
+
         // 右側のコマンド欄ボックス
         let cx0 = w - 388.0;
         self.art.draw_inset_box(&self.gfx, cx0, py + 6.0, w - 4.0, h - 4.0);
@@ -3215,6 +3311,9 @@ impl Game {
 
     /// ボタンのツールチップ（すべての画面部品の上に描く。上端で切れるならカーソルの下へ）
     fn render_tooltip(&mut self) {
+        if self.touch && self.clock > self.tip_until {
+            return;
+        }
         let (w, h) = (self.gfx.width as f32, self.gfx.height as f32);
         let (mx, my) = self.mouse;
         // 後から置いたボタン（上に重なる画面）を優先
@@ -3465,7 +3564,11 @@ impl Game {
             }
             let tx = x + 84.0;
             let tw = (wd - 84.0).max(100.0);
-            let title = tf!("{} の国勢（右のボタンで民全体・全軍へ命令可）", "State of {} (the buttons on the right command all workers or all soldiers)", "{}国势（右侧按钮可命令全体民或全军）", crate::lang::tx(n.name));
+            let title = if self.gfx.compact {
+                tf!("{} の国勢", "State of {}", "{}国势", crate::lang::tx(n.name))
+            } else {
+                tf!("{} の国勢（右のボタンで民全体・全軍へ命令可）", "State of {} (the buttons on the right command all workers or all soldiers)", "{}国势（右侧按钮可命令全体民或全军）", crate::lang::tx(n.name))
+            };
             let wars: Vec<&str> = (0..NATIONS.len()).filter(|&o| self.world.at_war(pl, o)).map(|o| crate::lang::tx(self.world.nations[o].name)).collect();
             let s = tf!(
                 "城邑 {}　領土 {}　国力 {:.0}　生産 ×{:.2}　時代 ×{:.2}　上限 {:.1}\n交戦中：{}",

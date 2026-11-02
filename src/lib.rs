@@ -28,6 +28,12 @@ pub enum Ev {
     Key(u32, bool),
     Char(char),
     Resize(u32, u32),
+    /// スマートフォン向けの詰めた画面か
+    Compact(bool),
+    /// 続く入力がタッチ操作か
+    Touch(bool),
+    /// 画面（記録・外交などの一覧）を指でなぞったスクロール（実ピクセル）
+    Scroll(f32),
 }
 
 thread_local! {
@@ -44,10 +50,11 @@ fn push(e: Ev) {
 
 /// 初期化：実ピクセルでの画面寸法を受け取る
 #[no_mangle]
-pub extern "C" fn yy_init(w: u32, h: u32) {
+pub extern "C" fn yy_init(w: u32, h: u32, compact: u32) {
     platform::install_panic_hook();
     lang::set_lang(platform::initial_lang());
-    let gfx = gfx::Gfx::new(w.max(1), h.max(1));
+    let mut gfx = gfx::Gfx::new(w.max(1), h.max(1));
+    gfx.set_compact(compact != 0);
     let game = game::Game::new(gfx);
     GAME.with(|g| *g.borrow_mut() = Some(game));
 }
@@ -67,6 +74,9 @@ pub extern "C" fn yy_event(kind: u32, a: f32, b: f32, c: f32) {
             None => return,
         },
         6 => Ev::Resize(a as u32, b as u32),
+        7 => Ev::Scroll(a),
+        8 => Ev::Compact(a != 0.0),
+        9 => Ev::Touch(a != 0.0),
         _ => return,
     };
     push(e);
@@ -89,6 +99,16 @@ pub extern "C" fn yy_frame(dt: f32, focused: u32) -> u32 {
             game.frame(&evs, dt.min(0.1), focused != 0) as u32
         }
         None => 0,
+    })
+}
+
+/// タッチした場所に何があるか（実ピクセル）。ブラウザ側が指の動きの解釈を決めるのに使う
+/// 0=地図 1=画面部品 2=ミニマップ 3=なぞってスクロールできる一覧 4=タイトル画面の地図
+#[no_mangle]
+pub extern "C" fn yy_hit(x: f32, y: f32) -> u32 {
+    GAME.with(|g| match g.borrow().as_ref() {
+        Some(game) => game.hit_kind(x, y),
+        None => 1,
     })
 }
 

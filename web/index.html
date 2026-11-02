@@ -2,7 +2,14 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#120f0c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="春秋戦国" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <meta name="description" content="春秋戦国 — 中華統一への道。古代中国の550年を舞台にしたリアルタイムストラテジー（ブラウザ版）" />
     <title>春秋戦国 — 中華統一への道</title>
     <link rel="icon" href="./favicon.ico" sizes="any" />
@@ -10,9 +17,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet" />
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #120f0c; }
-      canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #120f0c; overscroll-behavior: none;
+        -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+      body { touch-action: none; }
+      canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; }
       #ui { touch-action: none; outline: none; }
+      /* スマートフォンを縦に持っているときは横向きを促す */
+      #rotate { display: none; position: fixed; inset: 0; z-index: 10; flex-direction: column; align-items: center; justify-content: center;
+        gap: 18px; background: rgba(18, 15, 12, 0.94); color: #e8d8b0; font: 18px "Noto Sans JP", sans-serif; text-align: center; padding: 24px; }
+      #rotate .phone { width: 44px; height: 76px; border: 3px solid #d4a246; border-radius: 8px; animation: rot 2.4s ease-in-out infinite; }
+      @keyframes rot { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+      @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
       #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
         color: #e8d8b0; font: 18px "Yu Gothic UI", "Noto Sans JP", sans-serif; background: #120f0c; gap: 12px; }
       #loading h1 { margin: 0; font-size: 40px; letter-spacing: 0.3em; color: #d4a246; }
@@ -23,6 +38,7 @@
   <body>
     <canvas id="gl"></canvas>
     <canvas id="ui" tabindex="0"></canvas>
+    <div id="rotate"><div class="phone"></div><div id="rotate-msg">画面を横向きにしてお遊びください</div></div>
     <div id="loading"><h1>春秋戦国</h1><div id="loading-msg">読み込み中…</div></div>
     <script type="module" src="./main.js"></script>
   </body>

@@ -16,6 +16,7 @@ pub mod js {
 
         pub fn js_2d_begin(ui: f32);
         pub fn js_2d_end();
+        pub fn js_2d_offset(dy: f32);
         pub fn js_fill_rect(x0: f32, y0: f32, x1: f32, y1: f32, r: f32, g: f32, b: f32, a: f32);
         pub fn js_stroke_rect(x0: f32, y0: f32, x1: f32, y1: f32, w: f32, r: f32, g: f32, b: f32, a: f32);
         pub fn js_fill_round(x0: f32, y0: f32, x1: f32, y1: f32, rad: f32, r: f32, g: f32, b: f32, a: f32);

@@ -59,6 +59,8 @@ pub struct Gfx {
     pub verts: Vec<Vertex>,
     xform: [f32; 4],
     pub d2d_gen: u32,
+    /// スマートフォン向けに詰めた画面（UI を約 1000×470 に収める）
+    pub compact: bool,
 }
 
 pub fn col(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
@@ -77,6 +79,7 @@ impl Gfx {
             verts: Vec::with_capacity(MAX_VERTS),
             xform: [1.0, 1.0, 0.0, 0.0],
             d2d_gen: 1,
+            compact: false,
         };
         g.update_scale();
         g.reload_fonts();
@@ -95,10 +98,36 @@ impl Gfx {
     /// 画面の高さ 900px を基準に拡大し、UI が収まる最小寸法（1360×720）を下回らないよう制限する。
     pub fn update_scale(&mut self) {
         let (pw, ph) = (self.pw as f32, self.ph as f32);
+        if self.compact {
+            // スマートフォン：画面の高さを約 470 として文字を大きくする（最小 900×420 に収める）
+            let cap = (ph / 420.0).min(pw / 900.0).max(0.3);
+            self.ui = (ph / 480.0 * self.user_scale / 1.15).clamp(0.3, cap);
+            self.width = ((pw / self.ui).round() as u32).max(1);
+            self.height = ((ph / self.ui).round() as u32).max(1);
+            return;
+        }
         let cap = (ph / 720.0).min(pw / 1360.0).max(0.5);
         self.ui = (ph / 900.0 * self.user_scale).clamp(0.5, cap);
         self.width = ((pw / self.ui).round() as u32).max(1);
         self.height = ((ph / self.ui).round() as u32).max(1);
+    }
+
+    /// スマートフォン向けの詰めた画面に切り替える
+    pub fn set_compact(&mut self, c: bool) {
+        if self.compact != c {
+            self.compact = c;
+            self.update_scale();
+        }
+    }
+
+    /// 文字・UI の描画を縦にずらす（一覧のスクロール用、UI 座標）
+    pub fn set_2d_offset(&mut self, dy: f32) {
+        #[cfg(target_arch = "wasm32")]
+        unsafe {
+            js::js_2d_offset(dy * self.ui)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = dy;
     }
 
     /// 利用者の文字サイズ設定を変える（d: +1 で拡大、-1 で縮小）

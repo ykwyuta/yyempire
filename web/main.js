@@ -40,6 +40,8 @@ function detectLang() {
 let curLang = detectLang();
 // JS 側で出す文
 const T = (ja, en, zh) => [ja, en, zh][curLang] ?? ja;
+const rotateMsg = document.getElementById('rotate-msg');
+if (rotateMsg) rotateMsg.textContent = T('画面を横向きにしてお遊びください', 'Please rotate your device to landscape', '请将设备横向放置');
 let FAMILY = FAMILIES[curLang];
 // gfx::Font と同じ並び：[大きさ, 中央揃え, 太字]
 const FONTS = [
@@ -150,6 +152,7 @@ const NO_START = new Set('、。，．・：；？！ー－）」』】〕｝〉
 const measureCache = new Map();
 const wrapCache = new Map();
 let curFont = -1;
+let curUi = 1;
 function setFont(f) {
   if (curFont !== f) {
     ctx.font = fontCss[f];
@@ -399,11 +402,14 @@ const env = {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
     ctx.setTransform(ui, 0, 0, ui, 0, 0);
+    curUi = ui;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.globalAlpha = 1;
   },
   js_2d_end: () => {},
+  // 縦に収まらない一覧を、ずらして描く（実ピクセル）
+  js_2d_offset: (dy) => ctx.setTransform(curUi, 0, 0, curUi, 0, dy),
   js_fill_rect: (x0, y0, x1, y1, r, g, b, a) => {
     ctx.fillStyle = css(r, g, b, a);
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
@@ -508,7 +514,14 @@ const env = {
 
   js_fullscreen_toggle: () => {
     if (document.fullscreenElement) document.exitFullscreen?.();
-    else document.documentElement.requestFullscreen?.().catch(() => {});
+    else {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      // スマートフォンでは全画面にしたうえで横向きに固定する
+      Promise.resolve(req?.call(el, { navigationUI: 'hide' }))
+        .then(() => screen.orientation?.lock?.('landscape'))
+        .catch(() => {});
+    }
   },
   js_is_fullscreen: () => (document.fullscreenElement ? 1 : 0),
 };
@@ -543,8 +556,18 @@ function showError(s) {
 // ------------------------------------------------------------------ 画面寸法
 let pw = 0;
 let ph = 0;
+// 指で操作する端末か（?touch=1 / ?touch=0 で強制）
+const QS = new URLSearchParams(location.search);
+const coarse = () => (QS.has('touch') ? QS.get('touch') === '1' : matchMedia('(pointer: coarse)').matches);
+// スマートフォンの小さい画面（?compact=1 / ?compact=0 で強制）
+function isCompact() {
+  if (QS.has('compact')) return QS.get('compact') === '1';
+  return coarse() && Math.min(window.innerWidth, window.innerHeight) < 600;
+}
+let compact = false;
 function fit() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  // スマートフォンでは描く画素数を抑えて電池と発熱を減らす
+  const dpr = Math.min(window.devicePixelRatio || 1, coarse() ? 2 : 3);
   const w = Math.max(1, Math.round(window.innerWidth * dpr));
   const h = Math.max(1, Math.round(window.innerHeight * dpr));
   if (w === pw && h === ph) return false;
@@ -590,45 +613,66 @@ function bindInput() {
   };
   const btn = (b) => (b === 0 ? 0 : b === 2 ? 1 : b === 1 ? 2 : -1);
   uiCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  // ---- タッチ操作：タップ＝左クリック、ドラッグ＝範囲選択、長押し＝右クリック、2本指＝移動・拡大縮小
+  // ---- タッチ操作
+  //  画面部品：タップ＝押す（押した直後は説明を少し表示）
+  //  地図：タップ＝選択（自軍を選んでいれば移動・攻撃・採集などの命令）、なぞる＝地図を動かす、
+  //        長押ししてなぞる＝範囲選択、2本指＝移動・拡大縮小
+  //  一覧：なぞる＝上下にスクロール　ミニマップ：触れた場所へ移動
   const touches = new Map();
-  let pending = null; // 1本指：押した直後（まだ左押下を送っていない）
-  let twoFinger = null;
-  const LONG_MS = 550;
+  let one = null; // 1本指の操作
+  let two = null; // 2本指の操作
+  let ignore = false; // 2本指のあと、全部の指が離れるまで無視
+  const LONG_MS = 420;
+  const slop = () => 10 * (pw / Math.max(1, window.innerWidth));
   const mid = () => {
     const ps = [...touches.values()];
     return [(ps[0][0] + ps[1][0]) / 2, (ps[0][1] + ps[1][1]) / 2, Math.hypot(ps[0][0] - ps[1][0], ps[0][1] - ps[1][1])];
   };
-  const flushPending = () => {
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    wasm.yy_event(0, pending.x, pending.y, 0);
-    wasm.yy_event(1, 0, pending.x, pending.y);
-    pending.sent = true;
+  const tap = (x, y) => {
+    wasm.yy_event(0, x, y, 0);
+    wasm.yy_event(1, 0, x, y);
+    wasm.yy_event(2, 0, x, y);
+  };
+  // 1本指の操作を終える（2本指になったときなど）
+  const endOne = (x, y) => {
+    if (!one) return;
+    clearTimeout(one.timer);
+    if (one.mode === 'pan') wasm.yy_event(2, 2, x, y);
+    else if (one.mode === 'left' || one.mode === 'box') wasm.yy_event(2, 0, x, y);
+    one = null;
   };
   function touchDown(e) {
-    touches.set(e.pointerId, pos(e));
+    const p = pos(e);
+    touches.set(e.pointerId, p);
+    setTouch(true);
+    if (ignore) return;
     if (touches.size === 1) {
-      const [x, y] = pos(e);
-      pending = { id: e.pointerId, x, y, sent: false, long: false };
-      pending.timer = setTimeout(() => {
-        if (pending && !pending.sent) {
-          // 長押し＝右クリック（命令）
-          pending.long = true;
-          wasm.yy_event(0, pending.x, pending.y, 0);
-          wasm.yy_event(1, 1, pending.x, pending.y);
-          wasm.yy_event(2, 1, pending.x, pending.y);
-          navigator.vibrate?.(20);
-        }
-      }, LONG_MS);
+      const [x, y] = p;
+      const kind = wasm.yy_hit(x, y);
+      one = { id: e.pointerId, x0: x, y0: y, x, y, kind, mode: 'pending' };
+      wasm.yy_event(0, x, y, 0);
+      if (kind === 2) {
+        // ミニマップ：押した場所へすぐ動かす
+        one.mode = 'left';
+        wasm.yy_event(1, 0, x, y);
+      } else if (kind === 0) {
+        one.timer = setTimeout(() => {
+          if (one && one.mode === 'pending') {
+            // 長押し：範囲選択を始める
+            one.mode = 'box';
+            wasm.yy_event(1, 0, one.x0, one.y0);
+            wasm.yy_event(0, one.x, one.y, 0);
+            navigator.vibrate?.(15);
+          }
+        }, LONG_MS);
+      }
     } else if (touches.size === 2) {
-      if (pending) {
-        clearTimeout(pending.timer);
-        if (pending.sent) wasm.yy_event(2, 0, pending.x, pending.y);
-        pending = null;
+      if (one) {
+        const [x, y] = touches.get(one.id) || [one.x, one.y];
+        endOne(x, y);
       }
       const [mx, my, d] = mid();
-      twoFinger = { d };
+      two = { d };
       wasm.yy_event(0, mx, my, 0);
       wasm.yy_event(1, 2, mx, my);
     }
@@ -637,46 +681,72 @@ function bindInput() {
     if (!touches.has(e.pointerId)) return;
     const p = pos(e);
     touches.set(e.pointerId, p);
-    if (twoFinger && touches.size >= 2) {
+    if (two && touches.size >= 2) {
       const [mx, my, d] = mid();
       wasm.yy_event(0, mx, my, 0);
-      if (twoFinger.d > 0 && d > 0) {
-        const z = Math.log(d / twoFinger.d) / Math.log(1.15);
-        if (Math.abs(z) > 0.2) {
+      if (two.d > 0 && d > 0) {
+        const z = Math.log(d / two.d) / Math.log(1.15);
+        if (Math.abs(z) > 0.15) {
           wasm.yy_event(3, z, 0, 0);
-          twoFinger.d = d;
+          two.d = d;
         }
-      }
-    } else if (pending && pending.id === e.pointerId && !pending.long) {
-      if (!pending.sent && Math.hypot(p[0] - pending.x, p[1] - pending.y) > 10 * (window.devicePixelRatio || 1)) flushPending();
-      if (pending.sent) wasm.yy_event(0, p[0], p[1], 0);
-    }
-  }
-  function touchUp(e) {
-    if (!touches.has(e.pointerId)) return;
-    const p = touches.get(e.pointerId);
-    touches.delete(e.pointerId);
-    if (twoFinger) {
-      if (touches.size < 2) {
-        const [x, y] = p;
-        wasm.yy_event(2, 2, x, y);
-        twoFinger = null;
       }
       return;
     }
-    if (pending && pending.id === e.pointerId) {
-      clearTimeout(pending.timer);
-      if (!pending.long) {
-        if (!pending.sent) flushPending();
-        wasm.yy_event(0, p[0], p[1], 0);
-        wasm.yy_event(2, 0, p[0], p[1]);
+    if (!one || one.id !== e.pointerId) return;
+    const [x, y] = p;
+    const dy = y - one.y;
+    one.x = x;
+    one.y = y;
+    const far = Math.hypot(x - one.x0, y - one.y0) > slop();
+    if (one.mode === 'pending' && far) {
+      clearTimeout(one.timer);
+      if (one.kind === 0) {
+        // なぞる：地図を動かす（中ボタンのドラッグとして送る）
+        one.mode = 'pan';
+        wasm.yy_event(0, one.x0, one.y0, 0);
+        wasm.yy_event(1, 2, one.x0, one.y0);
+      } else if (one.kind === 3) {
+        one.mode = 'scroll';
+        wasm.yy_event(7, y - one.y0, 0, 0);
+        return;
+      } else {
+        one.mode = 'moved';
       }
-      pending = null;
     }
+    if (one.mode === 'scroll') wasm.yy_event(7, dy, 0, 0);
+    else if (one.mode !== 'moved') wasm.yy_event(0, x, y, 0);
+  }
+  function touchUp(e) {
+    if (!touches.has(e.pointerId)) return;
+    const [x, y] = touches.get(e.pointerId);
+    touches.delete(e.pointerId);
+    if (two) {
+      if (touches.size < 2) {
+        wasm.yy_event(2, 2, x, y);
+        two = null;
+        ignore = touches.size > 0;
+      }
+      return;
+    }
+    if (touches.size === 0) ignore = false;
+    if (!one || one.id !== e.pointerId) return;
+    clearTimeout(one.timer);
+    if (one.mode === 'pending') tap(one.x0, one.y0);
+    else if (one.mode === 'moved' && one.kind === 1 && Math.hypot(x - one.x0, y - one.y0) < slop() * 3) tap(one.x0, one.y0);
+    else endOne(x, y);
+    one = null;
+  }
+  // タッチとマウスの切り替えを伝える（タッチでは画面端のスクロールや常時の説明表示をしない）
+  let touchNow = null;
+  function setTouch(t) {
+    if (t || touchNow !== t) wasm.yy_event(9, t ? 1 : 0, 0, 0);
+    touchNow = t;
   }
 
   uiCanvas.addEventListener('pointermove', (e) => {
     if (e.pointerType === 'touch') return touchMove(e);
+    if (touchNow && e.pointerType === 'mouse') setTouch(false);
     const [x, y] = pos(e);
     wasm.yy_event(0, x, y, 0);
   });
@@ -692,6 +762,7 @@ function bindInput() {
     const b = btn(e.button);
     if (b < 0) return;
     e.preventDefault();
+    setTouch(false);
     uiCanvas.focus();
     try { uiCanvas.setPointerCapture(e.pointerId); } catch {}
     const [x, y] = pos(e);
@@ -737,6 +808,11 @@ function bindInput() {
     held.clear();
   });
   window.addEventListener('resize', () => {
+    const c = isCompact();
+    if (c !== compact) {
+      compact = c;
+      wasm.yy_event(8, c ? 1 : 0, 0, 0);
+    }
     if (fit()) wasm.yy_event(6, pw, ph, 0);
   });
 }
@@ -768,7 +844,8 @@ async function main() {
   fit();
   loadingMsg.textContent = T('天下を生成中…', 'Creating the world…', '正在生成天下…');
   await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-  wasm.yy_init(pw, ph);
+  compact = isCompact();
+  wasm.yy_init(pw, ph, compact ? 1 : 0);
   bindInput();
   loading.classList.add('hidden');
   uiCanvas.focus();
