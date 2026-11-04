@@ -134,6 +134,12 @@ enum Act {
     SaveMenu,
     /// 選択・建設の取り消し（タッチ操作用の ✕）
     Cancel,
+    /// 出来事の告知（バナー）を閉じる
+    DismissBanner,
+    /// 連合の一覧を開く・畳む（タッチ向けの画面）
+    ToggleAlerts,
+    /// いま出ているお知らせを消す（タッチ向けの画面）
+    ClearMsgs,
     SaveSlot(u8),
     LoadSlot(u8),
     ExportSlot(u8),
@@ -211,6 +217,10 @@ pub struct Game {
     tip_until: f32,
     /// タッチ操作の建設：1回目のタップで場所を示し、同じ場所を2回目にタップで建てる
     place_tap: Option<(f32, f32)>,
+    /// タッチ向けの画面：連合の一覧を開いているか
+    alerts_open: bool,
+    /// タッチ向けの画面：この時刻までのお知らせは消した
+    msg_cut: f32,
     /// 最後に記録した年（自動記録の間隔）
     autosave_years: f32,
     /// タイトル画面で選ぶ英霊モード（既定は無効）
@@ -348,6 +358,8 @@ impl Game {
             ov_max: 0.0,
             tip_until: 0.0,
             place_tap: None,
+            alerts_open: false,
+            msg_cut: -1.0,
             autosave_years: 0.0,
             heroic_opt: false,
             chron_scroll: 0,
@@ -1847,6 +1859,9 @@ impl Game {
                 crate::platform::save_lang(l);
                 self.gfx.reload_fonts();
             }
+            Act::DismissBanner => self.world.dismiss_banner(),
+            Act::ToggleAlerts => self.alerts_open = !self.alerts_open,
+            Act::ClearMsgs => self.msg_cut = self.world.time,
             Act::Cancel => {
                 if self.mode != Mode::Normal {
                     self.mode = Mode::Normal;
@@ -3215,32 +3230,66 @@ impl Game {
                 tf!("【{}】{}討伐 盟主{} {}国 残り{}年{}", "[{}] vs {}, led by {}, {} states, {} yrs{}", "【{}】讨伐{} 盟主{} {}国 剩余{}年{}", k, crate::lang::tx(self.world.nations[c.target].name), crate::lang::tx(self.world.nations[c.leader].name), c.members.len(), (c.end - years).ceil() as i32, me)
             })
             .collect();
-        for s in coal {
-            self.gfx.fill_round(w - 472.0, cy, w - 6.0, cy + 23.0, 3.0, [0.38, 0.10, 0.08, 0.90]);
-            self.gfx.stroke_round(w - 472.0, cy, w - 6.0, cy + 23.0, 3.0, 1.2, [0.92, 0.72, 0.34, 0.9]);
-            self.gfx.text_shadow(&s, w - 464.0, cy + 2.0, 460.0, 20.0, Font::Normal, [1.0, 0.88, 0.52, 1.0]);
+        let compact = self.gfx.compact;
+        let ag_shown = self.world.era == Era::Spring && self.world.nations[pl].aggression > 20.0;
+        if compact && !self.alerts_open && (!coal.is_empty() || ag_shown) {
+            // タッチ向けの画面：地図を覆わないよう、畳んだ目印だけ出す（押すと開く）
+            let me_target = self.world.coalitions.iter().any(|c| c.target == pl);
+            let lbl = if coal.is_empty() {
+                tf!("諸侯の警戒 {:.0} ▾", "Alarm {:.0} ▾", "诸侯警戒 {:.0} ▾", self.world.nations[pl].aggression)
+            } else if me_target {
+                tf!("連合が自国を討伐中 ({}) ▾", "Coalition vs YOU ({}) ▾", "联军讨伐我国 ({}) ▾", coal.len())
+            } else {
+                tf!("連合 {} ▾", "Coalitions {} ▾", "联军 {} ▾", coal.len())
+            };
+            let bw = self.gfx.measure(&lbl, Font::Normal) + 28.0;
+            self.add_button(w - 6.0 - bw, cy, w - 6.0, cy + 34.0, &lbl, "", 0, true, Act::ToggleAlerts, "");
+            if me_target {
+                self.gfx.stroke_round(w - 6.0 - bw, cy, w - 6.0, cy + 34.0, 3.0, 2.0, [1.0, 0.35, 0.25, 1.0]);
+            }
+        }
+        let show_list = !compact || self.alerts_open;
+        let lw = if compact { 472.0f32.min(w * 0.62) } else { 472.0 };
+        let list_y0 = cy;
+        for s in coal.iter().filter(|_| show_list) {
+            self.gfx.fill_round(w - lw, cy, w - 6.0, cy + 23.0, 3.0, [0.38, 0.10, 0.08, 0.90]);
+            self.gfx.stroke_round(w - lw, cy, w - 6.0, cy + 23.0, 3.0, 1.2, [0.92, 0.72, 0.34, 0.9]);
+            self.gfx.text_shadow(s, w - lw + 8.0, cy + 2.0, lw - 12.0, 20.0, Font::Normal, [1.0, 0.88, 0.52, 1.0]);
             cy += 25.0;
         }
         // 覇者の警戒度
-        if self.world.era == Era::Spring {
+        if show_list && self.world.era == Era::Spring {
             let ag = self.world.nations[pl].aggression;
             if ag > 20.0 {
                 let s = tf!("諸侯の警戒 {:.0}/100", "Lords' alarm {:.0}/100", "诸侯警戒 {:.0}/100", ag);
                 let col = if ag > 75.0 { [1.0, 0.4, 0.3, 1.0] } else { [0.95, 0.8, 0.5, 1.0] };
                 self.gfx.text_shadow(&s, w - 220.0, cy + 2.0, 214.0, 20.0, Font::Normal, col);
+                cy += 24.0;
             }
+        }
+        if compact && self.alerts_open {
+            // 開いた一覧は、押すと畳む
+            let label = t!("▴ 畳む", "▴ Hide", "▴ 收起");
+            self.add_button(w - 96.0, cy + 2.0, w - 6.0, cy + 34.0, label, "", 0, true, Act::ToggleAlerts, "");
+            self.buttons.push(Button { x0: w - lw, y0: list_y0, x1: w - 6.0, y1: cy, label: String::new(), key: 0, enabled: true, act: Act::ToggleAlerts, tip: String::new() });
         }
 
         // ---- メッセージ
         let now = self.world.time;
         let mut y = self.top_h() + 8.0;
-        let msgs: Vec<(String, [f32; 3], f32)> = self.world.msgs.iter().rev().take(if self.gfx.compact { 4 } else { 7 }).filter(|m| now - m.time < 25.0).map(|m| (m.text.clone(), m.color, now - m.time)).collect();
+        let cut = if self.gfx.compact { self.msg_cut } else { -1.0 };
+        let msgs: Vec<(String, [f32; 3], f32)> = self.world.msgs.iter().rev().take(if self.gfx.compact { 4 } else { 7 }).filter(|m| now - m.time < 25.0 && m.time > cut).map(|m| (m.text.clone(), m.color, now - m.time)).collect();
+        let any_msg = !msgs.is_empty();
         for (t, c, age) in msgs.into_iter().rev() {
             let a = if age > 20.0 { (25.0 - age) / 5.0 } else { 1.0 };
             let mw = if self.gfx.compact { w * 0.5 } else { w * 0.55 };
             let mh = self.gfx.measure_h(&t, Font::Normal, mw).clamp(20.0, 40.0);
             self.gfx.text_shadow(&t, 10.0, y, mw, mh, Font::Normal, [c[0], c[1], c[2], a]);
             y += mh;
+        }
+        if self.gfx.compact && any_msg {
+            // タッチ向けの画面：お知らせを消す ✕
+            self.add_button(10.0, y + 2.0, 46.0, y + 34.0, "✕", "", 0, true, Act::ClearMsgs, t!("お知らせを消す", "Clear messages", "清除消息"));
         }
 
         // ---- イベントバナー
@@ -3249,13 +3298,18 @@ impl Game {
             let (title, text) = (b.title.clone(), b.text.clone());
             let bw = 760.0f32.min(w - 40.0);
             let x0 = (w - bw) / 2.0;
-            let y0 = self.top_h() + 90.0;
+            let y0 = self.top_h() + if self.gfx.compact { 40.0 } else { 90.0 };
             let th = self.gfx.measure_h(&text, Font::NormalCenter, bw - 40.0).max(24.0);
-            let bh = 66.0 + th + 14.0;
+            let bh = 66.0 + th + if self.gfx.compact { 34.0 } else { 14.0 };
             self.art.draw_stone_panel(&self.gfx, x0, y0, x0 + bw, y0 + bh);
             self.art.draw_corner_ornaments(&self.gfx, x0 + 3.0, y0 + 3.0, x0 + bw - 3.0, y0 + bh - 3.0, 14.0);
             self.gfx.text_shadow(&title, x0, y0 + 8.0, bw, 44.0, Font::Title, [1.0, 0.85, 0.4, a]);
             self.gfx.text_shadow(&text, x0 + 20.0, y0 + 58.0, bw - 40.0, th + 6.0, Font::NormalCenter, [1.0, 0.95, 0.85, a]);
+            if self.gfx.compact {
+                // タッチ向けの画面：告知を押すと閉じる（時が止まっている間も消せるように）
+                self.gfx.text_shadow(t!("タップで閉じる", "Tap to close", "点击关闭"), x0, y0 + bh - 28.0, bw, 22.0, Font::NormalCenter, [0.85, 0.80, 0.70, a]);
+                self.buttons.push(Button { x0, y0, x1: x0 + bw, y1: y0 + bh, label: String::new(), key: 0, enabled: true, act: Act::DismissBanner, tip: String::new() });
+            }
         }
 
         // ---- 下部パネル（Age of Empires 風石彫レリーフ＆3区画フレーム）

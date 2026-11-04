@@ -432,6 +432,11 @@ impl World {
         }
     }
 
+    /// いまの告知を閉じて、次の告知へ
+    pub fn dismiss_banner(&mut self) {
+        self.banner = self.banner_queue.pop_front();
+    }
+
     pub fn queue_banner(&mut self, b: Banner) {
         if self.banner.is_none() {
             self.banner = Some(b);
