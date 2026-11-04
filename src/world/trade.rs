@@ -235,8 +235,33 @@ impl World {
         Ok(())
     }
 
-    /// 傭兵を雇う：部族に最も近い自国の城邑に現れ、契約年数のあいだ仕える
-    pub fn hire_mercs(&mut self, n: usize, t: usize) -> Result<(), &'static str> {
+    /// 城邑の場所の呼び方（国都、または国都から見た方角の邑）
+    pub fn city_place(&self, bi: usize) -> String {
+        let b = &self.blds[bi];
+        let n = b.nation as usize;
+        if b.kind == BKind::Capital || self.nations[n].capital == Some(self.bh(bi)) {
+            return t!("国都", "the capital", "国都").to_string();
+        }
+        let home = self.nations[n].home;
+        let d = b.center() - home;
+        // 画面の上が北
+        let a = d.y.atan2(d.x).to_degrees();
+        let dir = match ((a + 360.0 + 22.5) % 360.0 / 45.0) as i32 {
+            0 => t!("東", "east", "东"),
+            1 => t!("南東", "southeast", "东南"),
+            2 => t!("南", "south", "南"),
+            3 => t!("南西", "southwest", "西南"),
+            4 => t!("西", "west", "西"),
+            5 => t!("北西", "northwest", "西北"),
+            6 => t!("北", "north", "北"),
+            _ => t!("北東", "northeast", "东北"),
+        };
+        tf!("国都の{}の邑", "the town {} of the capital", "国都{}方的邑", dir)
+    }
+
+    /// 傭兵を雇う：部族に最も近い自国の城邑に現れ、契約年数のあいだ仕える。
+    /// 現れた傭兵と、現れた城邑の番号を返す
+    pub fn hire_mercs(&mut self, n: usize, t: usize) -> Result<(Vec<Handle>, usize), &'static str> {
         self.can_hire(n, t)?;
         let home = self.tribe_home(t);
         let mut best: Option<(f32, usize)> = None;
@@ -254,6 +279,7 @@ impl World {
         let bh = self.bh(bi);
         let power = (self.tribe_power() * 1.15).min(self.power_cap());
         let until = self.years + MERC_YEARS;
+        let mut hired = Vec::new();
         for k in 0..MERC_N {
             let kind = if TRIBES[t].nomad {
                 UnitKind::Chariot
@@ -267,15 +293,16 @@ impl World {
                 let u = self.unit_mut(h).unwrap();
                 u.tribe = t as u8;
                 u.merc_until = until;
+                hired.push(h);
             }
         }
         self.trade.tribes[t].contract[n] = until;
         self.trade.tribes[t].last = tf!("{}に傭兵として仕える", "Serving {} as mercenaries", "受雇于{}为佣兵", tx(self.nations[n].name));
         if n == self.player {
-            let s = tf!("{}の兵{}を傭兵として雇った（{}銭・{}年）", "Hired {1} {0} warriors as mercenaries ({2} coin, {3} years)", "雇佣了{}兵{}名为佣兵（{}钱・{}年）", tx(TRIBES[t].name), MERC_N, cost, MERC_YEARS as i32);
+            let s = tf!("{}の兵{}を傭兵として雇った（{}銭・{}年）。{}に現れた", "Hired {1} {0} warriors as mercenaries ({2} coin, {3} years). They appeared at {4}", "雇佣了{}兵{}名为佣兵（{}钱・{}年）。出现在{}", tx(TRIBES[t].name), MERC_N, cost, MERC_YEARS as i32, self.city_place(bi));
             self.push_msg(s, [0.6, 0.9, 0.6]);
         }
-        Ok(())
+        Ok((hired, bi))
     }
 
     /// 市場で資源を買う

@@ -143,7 +143,7 @@ impl Game {
         // 民・兵（押すと全体を選ぶ）
         for (icon, s, act) in [
             (ResIcon::Worker, format!("{}/{}", n_workers, w_cap), Act::SelectAllWorkers),
-            (ResIcon::Soldier, format!("{}/{}", n_soldiers, m_cap), Act::SelectAllMilitary),
+            (ResIcon::Soldier, self.soldier_text(n_soldiers, m_cap), Act::SelectAllMilitary),
         ] {
             self.gfx.fill_round(x, 4.0, x + 76.0, H - 4.0, 4.0, [0.16, 0.13, 0.09, 0.75]);
             self.gfx.stroke_round(x, 4.0, x + 76.0, H - 4.0, 4.0, 1.0, [0.75, 0.62, 0.34, 0.85]);

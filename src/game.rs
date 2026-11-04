@@ -1265,6 +1265,17 @@ impl Game {
             .collect()
     }
 
+    /// 兵の数の表示（傭兵がいれば「＋傭兵の数」を添える。傭兵は上限の外）
+    fn soldier_text(&self, n: u32, cap: u32) -> String {
+        let pl = self.world.player;
+        let m = self.world.units.iter().filter(|u| u.alive && u.nation as usize == pl && u.merc_until > 0.0).count();
+        if m > 0 {
+            format!("{}/{}+{}", n, cap, m)
+        } else {
+            format!("{}/{}", n, cap)
+        }
+    }
+
     fn all_military(&self) -> Vec<Handle> {
         let p = self.world.player;
         (0..self.world.units.len())
@@ -2092,7 +2103,19 @@ impl Game {
                 Err(e) => self.notice(e),
             },
             Act::Hire(t) => match self.world.hire_mercs(pl, t) {
-                Ok(()) => self.notice(&tf!("{}の傭兵を雇った", "Hired {} mercenaries", "雇佣了{}佣兵", crate::lang::tx(TRIBES[t].name))),
+                Ok((hs, bi)) => {
+                    // 現れた場所が分かるよう、交易画面を閉じて傭兵の所へ地図を動かし、選んでおく（すぐ命令できる）
+                    let place = self.world.city_place(bi);
+                    let c = self.world.blds[bi].center();
+                    self.show_market = false;
+                    self.cam = c;
+                    self.clamp_cam();
+                    self.marker = Some((c, 1.5, false));
+                    if !hs.is_empty() {
+                        self.set_sel(hs);
+                    }
+                    self.notice(&tf!("{}の傭兵が{}に現れた", "{} mercenaries appeared at {}", "{}佣兵出现在{}", crate::lang::tx(TRIBES[t].name), place));
+                }
                 Err(e) => self.notice(e),
             },
             Act::ChronPage(d) => {
@@ -3124,7 +3147,7 @@ impl Game {
         if let Some(ic) = &self.art.res_icons[ResIcon::Soldier as usize] {
             self.gfx.draw_bitmap(ic, x + 3.0, 5.0, x + 29.0, 31.0);
         }
-        let s = format!("{}/{}", n_soldiers, m_cap);
+        let s = self.soldier_text(n_soldiers, m_cap);
         self.gfx.text_shadow(&s, x + 32.0, 8.0, 54.0, 22.0, Font::Normal, [0.95, 0.92, 0.85, 1.0]);
         self.buttons.push(Button {
             x0: x,
@@ -3728,6 +3751,9 @@ impl Game {
         let afford = |c: [f32; 3]| res[0] >= c[0] && res[1] >= c[1] && res[2] >= c[2];
         let own = self.own_sel();
         let (n_workers, n_soldiers) = (self.world.nations[pl].workers, self.world.nations[pl].soldiers);
+        // 全軍への命令は傭兵も含む（訓練だけは傭兵を除く）
+        let n_army = self.all_military().len();
+        let n_trainable = n_soldiers;
         if !own.is_empty() {
             let any_worker = own.iter().any(|&h| self.world.unit(h).unwrap().kind == UnitKind::Worker);
             let any_mil = own.iter().any(|&h| self.world.unit(h).unwrap().kind.military());
@@ -3809,18 +3835,18 @@ impl Game {
                 self.add_button(x0, y0, x1, y1, t!("同兵種選択", "Same type", "选择同兵种"), u0_kind.name(era), 'F' as u32, true, Act::SelectKind(u0_kind), t!("自国の同じ兵種のユニットをすべて選択する。", "Select all your units of the same type.", "选择我国所有同兵种单位。"));
                 // 下段：全軍（軍事ユニット全体）への命令
                 let (x0, y0, x1, y1) = pos(6);
-                self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_soldiers), 'G' as u32, n_soldiers > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
+                self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_army), 'G' as u32, n_army > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
                 let (x0, y0, x1, y1) = pos(7);
-                self.add_button(x0, y0, x1, y1, t!("全軍・進撃", "All: attack", "全军・进击"), t!("全軍で敵陣へ", "whole army", "全军攻敌"), 'Q' as u32, n_soldiers > 0, Act::AllArmyAttack, t!("全軍事ユニットを選択し、交戦国の城邑・敵部隊へ一斉進撃（または地図クリックで進軍先指定）する。", "Select every soldier and advance on enemy cities and armies (or click the map to choose where).", "选择全部军事单位，向交战国城邑、敌军全面进击（或点击地图指定目标）。"));
+                self.add_button(x0, y0, x1, y1, t!("全軍・進撃", "All: attack", "全军・进击"), t!("全軍で敵陣へ", "whole army", "全军攻敌"), 'Q' as u32, n_army > 0, Act::AllArmyAttack, t!("全軍事ユニットを選択し、交戦国の城邑・敵部隊へ一斉進撃（または地図クリックで進軍先指定）する。", "Select every soldier and advance on enemy cities and armies (or click the map to choose where).", "选择全部军事单位，向交战国城邑、敌军全面进击（或点击地图指定目标）。"));
                 let (x0, y0, x1, y1) = pos(8);
-                self.add_button(x0, y0, x1, y1, t!("全軍・防衛", "All: defend", "全军・防卫"), t!("全軍で防衛", "whole army", "全军防守"), 'W' as u32, n_soldiers > 0, Act::AllArmyDefend, t!("全軍事ユニットに領内侵入者の迎撃および城邑への防衛帰還を命じる。", "Order every soldier to intercept intruders and return to defend the cities.", "命令全部军事单位迎击入侵者并返回城邑防守。"));
+                self.add_button(x0, y0, x1, y1, t!("全軍・防衛", "All: defend", "全军・防卫"), t!("全軍で防衛", "whole army", "全军防守"), 'W' as u32, n_army > 0, Act::AllArmyDefend, t!("全軍事ユニットに領内侵入者の迎撃および城邑への防衛帰還を命じる。", "Order every soldier to intercept intruders and return to defend the cities.", "命令全部军事单位迎击入侵者并返回城邑防守。"));
             } else {
                 let (x0, y0, x1, y1) = pos(i);
                 self.add_button(x0, y0, x1, y1, t!("進軍", "Attack-move", "进军"), t!("攻撃移動", "fight on the way", "攻击移动"), 'A' as u32, true, Act::AttackMove, t!("クリックした地点へ、途中の敵と戦いながら進む。", "March to the clicked point, fighting enemies on the way.", "向点击的地点进军，沿途与敌交战。"));
                 let (x0, y0, x1, y1) = pos(7);
                 self.add_button(x0, y0, x1, y1, t!("全民を選択", "All workers", "选择全民"), &tf!("全{}体", "all {}", "全{}名", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, t!("自国のすべての民を選択する。", "Select all your workers.", "选择我国全部民。"));
                 let (x0, y0, x1, y1) = pos(8);
-                self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_soldiers), 'V' as u32, n_soldiers > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
+                self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_army), 'V' as u32, n_army > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
             }
         } else if let Some(bh) = self.sel_b {
             let b = self.world.bld(bh).unwrap();
@@ -3879,14 +3905,14 @@ impl Game {
             let (x0, y0, x1, y1) = pos(4);
             self.add_button(x0, y0, x1, y1, t!("全民を選択", "All workers", "选择全民"), &tf!("全{}体", "all {}", "全{}名", n_workers), 'G' as u32, n_workers > 0, Act::SelectAllWorkers, t!("自国のすべての民を選択する（建設や一斉移動を行えます）。", "Select all your workers (to build or move them together).", "选择我国全部民（可进行建造或统一移动）。"));
             let (x0, y0, x1, y1) = pos(5);
-            self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_soldiers), 'V' as u32, n_soldiers > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
+            self.add_button(x0, y0, x1, y1, t!("全軍を選択", "All soldiers", "选择全军"), &tf!("全{}体", "all {}", "全{}个", n_army), 'V' as u32, n_army > 0, Act::SelectAllMilitary, t!("自国のすべての軍事ユニットを選択する。", "Select all your soldiers.", "选择我国全部军事单位。"));
 
             let (x0, y0, x1, y1) = pos(6);
-            self.add_button(x0, y0, x1, y1, t!("全軍・進撃", "All: attack", "全军・进击"), t!("敵城・目標へ", "enemy cities", "敌城・目标"), 'A' as u32, n_soldiers > 0, Act::AllArmyAttack, t!("全軍事ユニットを選択し、交戦国の最寄り城邑・敵部隊へ総進撃（または地図クリックで進軍先指定）する。", "Select every soldier and advance on the nearest enemy city and armies (or click the map to choose where).", "选择全部军事单位，向交战国最近的城邑、敌军总攻（或点击地图指定目标）。"));
+            self.add_button(x0, y0, x1, y1, t!("全軍・進撃", "All: attack", "全军・进击"), t!("敵城・目標へ", "enemy cities", "敌城・目标"), 'A' as u32, n_army > 0, Act::AllArmyAttack, t!("全軍事ユニットを選択し、交戦国の最寄り城邑・敵部隊へ総進撃（または地図クリックで進軍先指定）する。", "Select every soldier and advance on the nearest enemy city and armies (or click the map to choose where).", "选择全部军事单位，向交战国最近的城邑、敌军总攻（或点击地图指定目标）。"));
             let (x0, y0, x1, y1) = pos(7);
-            self.add_button(x0, y0, x1, y1, t!("全軍・防衛", "All: defend", "全军・防卫"), t!("領内迎撃・帰還", "guard cities", "领内迎击・归还"), 'D' as u32, n_soldiers > 0, Act::AllArmyDefend, t!("全軍事ユニットに、領内の侵入者の迎撃または自国城邑への防衛帰還を命じる。", "Order every soldier to intercept intruders or return to defend your cities.", "命令全部军事单位迎击入侵者或返回己方城邑防守。"));
+            self.add_button(x0, y0, x1, y1, t!("全軍・防衛", "All: defend", "全军・防卫"), t!("領内迎撃・帰還", "guard cities", "领内迎击・归还"), 'D' as u32, n_army > 0, Act::AllArmyDefend, t!("全軍事ユニットに、領内の侵入者の迎撃または自国城邑への防衛帰還を命じる。", "Order every soldier to intercept intruders or return to defend your cities.", "命令全部军事单位迎击入侵者或返回己方城邑防守。"));
             let (x0, y0, x1, y1) = pos(8);
-            self.add_button(x0, y0, x1, y1, t!("全軍・訓練", "All: train", "全军・训练"), t!("能力+0.5", "power +0.5", "能力+0.5"), 'R' as u32, n_soldiers > 0, Act::AllArmyUpgrade, t!("自国領内の軍事ユニットを、能力の低い順に資源が続く限り一斉に訓練する。", "Train the soldiers in your territory, weakest first, as far as resources last.", "按能力由低到高，在资源允许范围内一并训练己方领土内的军事单位。"));
+            self.add_button(x0, y0, x1, y1, t!("全軍・訓練", "All: train", "全军・训练"), t!("能力+0.5", "power +0.5", "能力+0.5"), 'R' as u32, n_trainable > 0, Act::AllArmyUpgrade, t!("自国領内の軍事ユニットを、能力の低い順に資源が続く限り一斉に訓練する。", "Train the soldiers in your territory, weakest first, as far as resources last.", "按能力由低到高，在资源允许范围内一并训练己方领土内的军事单位。"));
         }
     }
 
