@@ -19,6 +19,9 @@
   const api = window.yyBrowserRecovery = {
     reloading: false,
     setSaveGuard(guard) { saveGuard = guard; },
+    setTitleScreen(isTitle) {
+      document.documentElement.classList.toggle('recovery-playing', !isTitle);
+    },
   };
   // Do not send the button's input (including Enter/Space) into the game.
   for (const type of ['pointerdown', 'pointerup', 'click', 'keydown', 'keyup']) {
