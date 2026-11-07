@@ -245,13 +245,35 @@ async function storeGet(slot) {
   if (!db) return memStore.get(slot) ?? null;
   return (await dbReq('readonly', (st) => st.get(slot))) ?? null;
 }
-async function storePut(slot, rec) {
+async function writeSave(slot, rec) {
   if (!db) {
     memStore.set(slot, rec);
     return;
   }
   await dbReq('readwrite', (st) => st.put(rec, slot));
 }
+// Keep saved games intact: wait for writes and refuse to discard memory-only saves.
+const pendingSaves = new Set();
+const failedSaveSlots = new Set();
+function storePut(slot, rec) {
+  const write = writeSave(slot, rec);
+  pendingSaves.add(write);
+  write.then(() => {
+    pendingSaves.delete(write);
+    failedSaveSlots.delete(slot);
+  }, () => {
+    pendingSaves.delete(write);
+    failedSaveSlots.add(slot);
+  });
+  return write;
+}
+window.yyBrowserRecovery?.setSaveGuard(async () => {
+  await Promise.allSettled([...pendingSaves]);
+  if (failedSaveSlots.size || (!db && memStore.size)) {
+    throw new Error(T('記録を安全に保存できていないため、再読み込みできません。F5の記録画面で保存し直すか、ファイルに書き出して退避してください。', 'Reload blocked: some saves are not stored safely. Save again or export them to files from the F5 save screen.', '无法重新加载：有存档尚未安全保存。请在F5存档画面重新保存，或导出文件备份。'));
+  }
+});
+
 async function loadSlotInfo() {
   db = await openDb();
   for (let s = 0; s < 4; s++) {
@@ -871,12 +893,15 @@ function checkSize() {
 // ------------------------------------------------------------------ 起動
 async function loadWasm() {
   const url = new URL('./yyempire.wasm', import.meta.url);
+  const refresh = new URL(import.meta.url).searchParams.get('_yyrefresh');
+  if (refresh) url.searchParams.set('_yyrefresh', refresh);
+  const options = { cache: refresh ? 'reload' : 'no-cache' };
   const imports = { env };
   try {
-    const r = await WebAssembly.instantiateStreaming(fetch(url), imports);
+    const r = await WebAssembly.instantiateStreaming(fetch(url, options), imports);
     return r.instance.exports;
   } catch {
-    const buf = await (await fetch(url)).arrayBuffer();
+    const buf = await (await fetch(url, options)).arrayBuffer();
     const r = await WebAssembly.instantiate(buf, imports);
     return r.instance.exports;
   }
@@ -902,6 +927,11 @@ async function main() {
   uiCanvas.focus();
   let last = performance.now();
   const frame = (now) => {
+    if (window.yyBrowserRecovery?.reloading) {
+      last = now;
+      requestAnimationFrame(frame);
+      return;
+    }
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
     last = now;
     try {

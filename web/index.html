@@ -25,7 +25,7 @@
       :root.touch { --sl: max(env(safe-area-inset-left), 14px); --sr: max(env(safe-area-inset-right), 14px);
           --st: max(env(safe-area-inset-top), 10px); --sb: max(env(safe-area-inset-bottom), 14px); }
       canvas { position: fixed; left: var(--sl); top: var(--st); display: block;
-        width: calc(100vw - var(--sl) - var(--sr)); height: calc(100vh - var(--st) - var(--sb)); height: calc(100dvh - var(--st) - var(--sb)); }
+        width: calc(100vw - var(--sl) - var(--sr)); height: calc(100vh - var(--st) - var(--sb) - 44px); height: calc(100dvh - var(--st) - var(--sb) - 44px); }
       #ui { touch-action: none; outline: none; }
       /* スマートフォンを縦に持っているときは横向きを促す */
       #rotate { display: none; position: fixed; inset: 0; z-index: 10; flex-direction: column; align-items: center; justify-content: center;
@@ -41,11 +41,21 @@
       #loading .err { color: #ff8a7a; max-width: 80vw; white-space: pre-wrap; font-size: 14px; }
     </style>
   </head>
-  <body>
+  <body data-game-wasm="yyempire.wasm">
     <canvas id="gl"></canvas>
     <canvas id="ui" tabindex="0"></canvas>
     <div id="rotate"><div class="phone"></div><div id="rotate-msg">画面を横向きにしてお遊びください</div></div>
     <div id="loading"><h1>春秋戦国</h1><div id="loading-msg">読み込み中…</div></div>
-    <script type="module" src="./main.js"></script>
+    <script src="./browser-recovery.js"></script>
+    <script type="module">
+      const url = new URL('./main.js', location.href);
+      const refresh = new URL(location.href).searchParams.get('_yyrefresh');
+      if (refresh) url.searchParams.set('_yyrefresh', refresh);
+      import(url.href).catch((error) => {
+        console.error(error);
+        const message = document.getElementById('loading-msg');
+        if (message) message.textContent = '読み込みに失敗しました / Loading failed / 加载失败: ' + error.message;
+      });
+    </script>
   </body>
 </html>
