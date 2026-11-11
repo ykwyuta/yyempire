@@ -18,7 +18,7 @@ use crate::gfx::Bitmap as ID2D1Bitmap;
 const TEX_SCALE: usize = 8;
 const OVERLAY_SCALE: usize = 4;
 const TOP_H: f32 = 36.0;
-const BOT_H: f32 = 176.0;
+const BOT_H: f32 = 202.0;
 const MM_W: f32 = 196.0;
 const MM_H: f32 = 168.0;
 
@@ -113,6 +113,9 @@ enum Act {
     Restart,
     CloseOverlay,
     Demolish,
+    Discard,
+    ConfirmDiscard,
+    Repair,
     ResumeBuild,
     IdleWorker,
     Chron,
@@ -209,6 +212,7 @@ pub struct Game {
     show_summon: bool,
     /// 記録（セーブ・ロード）画面
     show_save: bool,
+    discard_pending: bool,
     /// いまの入力がタッチ操作か
     touch: bool,
     /// スマートフォン向け画面で一覧（外交・交易など）をなぞってスクロールした量（UI 座標）
@@ -354,6 +358,7 @@ impl Game {
             show_market: false,
             show_summon: false,
             show_save: false,
+            discard_pending: false,
             touch: false,
             ov_scroll: 0.0,
             ov_key: 0,
@@ -1134,6 +1139,9 @@ impl Game {
     }
 
     fn key_down(&mut self, k: u32) -> bool {
+        if std::mem::take(&mut self.discard_pending) && k == VK_ESCAPE {
+            return false;
+        }
         let ctrl = self.keys[VK_CONTROL as usize];
         match k {
             VK_F5 => {
@@ -1233,6 +1241,7 @@ impl Game {
     }
 
     fn clear_sel(&mut self) {
+        self.discard_pending = false;
         for h in self.sel.drain(..) {
             if let Some(u) = self.world.unit_mut(h) {
                 u.selected = false;
@@ -1671,6 +1680,7 @@ impl Game {
     }
 
     fn right_click_world(&mut self, p: V2) {
+        self.discard_pending = false;
         let pl = self.world.player;
         // ユニット未選択時：未完成建物の右クリックなら民を派遣、建物選択中なら集合地点設定
         if self.sel.is_empty() {
@@ -1832,6 +1842,7 @@ impl Game {
     }
 
     fn do_act(&mut self, a: Act) {
+        let discard_pending = std::mem::take(&mut self.discard_pending);
         // 部隊への指示（移動・攻撃以外）でも時間を再開する
         if matches!(a, Act::Upgrade | Act::Convert | Act::Stop | Act::WorkersAuto | Act::ArmyDefend | Act::Demolish) {
             self.cmd_pause = false;
@@ -2183,6 +2194,25 @@ impl Game {
             Act::Home => {
                 if let Some(c) = self.world.nations[pl].capital.and_then(|h| self.world.bld(h)) {
                     self.cam = c.center();
+                }
+            }
+            Act::Discard => {
+                let hs = self.own_sel();
+                self.discard_pending = !hs.is_empty() && hs.iter().all(|&h| self.world.can_discard_unit(pl, h));
+            }
+            Act::ConfirmDiscard => {
+                let hs = self.own_sel();
+                if discard_pending && self.world.discard_units(pl, &hs) {
+                    self.clear_sel();
+                    self.cmd_pause = false;
+                    self.notice(&tf!("ユニットを{}体破棄しました", "Removed {} units", "已移除{}个单位", hs.len()));
+                }
+            }
+            Act::Repair => {
+                if let Some(h) = self.sel_b {
+                    if self.world.repair_building(pl, h) {
+                        self.notice(t!("建物を補修しました", "Building repaired", "建筑已修复"));
+                    }
                 }
             }
             Act::Demolish => {
@@ -3758,7 +3788,25 @@ impl Game {
         // 全軍への命令は傭兵も含む（訓練だけは傭兵を除く）
         let n_army = self.all_military().len();
         let n_trainable = n_soldiers;
+        let utility_y = y + 3.0 * (bh + gap);
+        let utility_bottom = utility_y + 36.0;
         if !own.is_empty() {
+            let can_discard = own.iter().all(|&h| self.world.can_discard_unit(pl, h));
+            let (discard_x, _, discard_right, _) = pos(2);
+            if self.discard_pending && can_discard {
+                let label = tf!("{}体を破棄する", "Remove {} units", "移除{}个单位", own.len());
+                self.add_button(x, utility_y, discard_x - gap, utility_bottom, &label, "", 0, true, Act::ConfirmDiscard,
+                    t!("選択中の自国ユニットを完全に取り除きます。資源は戻りません。", "Permanently remove your selected units. No resources are refunded.", "永久移除所选己方单位，不返还资源。"));
+                self.add_button(discard_x, utility_y, discard_right, utility_bottom, t!("取消", "Cancel", "取消"), "", 0, true, Act::Noop,
+                    t!("ユニットの破棄を取り消す", "Cancel unit removal", "取消移除单位"));
+            } else {
+                let tip = if can_discard {
+                    t!("選択中の自国ユニットを破棄する（確認あり）", "Remove your selected units after confirmation", "确认后移除所选己方单位")
+                } else {
+                    t!("乗員がいる船は、先に乗員を降ろしてください", "Unload passengers before removing a ship", "移除船只前请先让乘员下船")
+                };
+                self.add_button(discard_x, utility_y, discard_right, utility_bottom, t!("ユニット破棄", "Remove units", "移除单位"), "", 0, can_discard, Act::Discard, tip);
+            }
             let any_worker = own.iter().any(|&h| self.world.unit(h).unwrap().kind == UnitKind::Worker);
             let any_mil = own.iter().any(|&h| self.world.unit(h).unwrap().kind.military());
             let mut i = 0;
@@ -3858,6 +3906,13 @@ impl Game {
                 return;
             }
             let (kind, done) = (b.kind, b.done());
+            if let Some(cost) = self.world.repair_cost(pl, bh) {
+                let (repair_x, _, _, _) = pos(1);
+                let (_, _, repair_right, _) = pos(2);
+                let label = tf!("補修（{}）", "Repair ({})", "修复（{}）", Self::cost_str(cost));
+                self.add_button(repair_x, utility_y, repair_right, utility_bottom, &label, "", 0, afford(cost), Act::Repair,
+                    t!("失った耐久10につき木材1（端数切り上げ）で耐久を全回復する。", "Restore all HP for 1 wood per 10 missing HP, rounded up.", "每损失10点耐久消耗1木材（向上取整），恢复全部耐久。"));
+            }
             let mut i = 0;
             if done {
                 let list: Vec<(UnitKind, char, &str)> = match kind {
