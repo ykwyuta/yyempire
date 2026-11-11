@@ -133,6 +133,12 @@ fn r_target(r: &mut Reader) -> RResult<Target> {
 fn w_order(w: &mut Writer, o: Order) {
     match o {
         Order::Idle => w.u8(0),
+        Order::Forestry { region, target, cursor } => {
+            w.u8(32);
+            w.usize(region);
+            w.usize(target.map_or(0, |tile| tile + 1));
+            w.usize(cursor);
+        }
         Order::Move(p) => {
             w.u8(1);
             w_v2(w, p);
@@ -173,6 +179,12 @@ fn w_order(w: &mut Writer, o: Order) {
 fn r_order(r: &mut Reader, mines: usize) -> RResult<Order> {
     Ok(match r.u8()? {
         0 => Order::Idle,
+        32 => {
+            let region = r.usize()?;
+            let target = r.usize()?.checked_sub(1);
+            let cursor = r.usize()?;
+            Order::Forestry { region, target, cursor }
+        }
         1 => Order::Move(r_v2(r)?),
         2 => Order::AttackMove(r_v2(r)?),
         3 => Order::Attack(r_target(r)?),
@@ -480,11 +492,25 @@ impl World {
         w.f32(tr.spawn_t);
         w.f32(tr.band_t);
         // 旧版の記録にも対応するため、植林データは末尾にだけ追加する。
-        if !self.saplings.is_empty() {
+        if !self.saplings.is_empty() || !self.forestry_regions.is_empty() {
             w.usize(self.saplings.len());
             for (&i, &ready_at) in &self.saplings {
                 w.usize(i);
                 w.f32(ready_at);
+            }
+        }
+        if !self.forestry_regions.is_empty() {
+            w.usize(self.forestry_regions.len());
+            for r in &self.forestry_regions {
+                w.usize(r.nation);
+                w.i32(r.x0);
+                w.i32(r.y0);
+                w.i32(r.x1);
+                w.i32(r.y1);
+            }
+            w.usize(self.managed_saplings.len());
+            for &tile in &self.managed_saplings {
+                w.usize(tile);
             }
         }
     }
@@ -847,6 +873,36 @@ impl World {
                 let ready_at = r.f32()?;
                 if i >= n || !ready_at.is_finite() || w.saplings.insert(i, ready_at).is_some() {
                     return Err(bad(t!("植林", "planting", "植树")));
+                }
+            }
+        }
+        if !r.is_empty() {
+            for _ in 0..r.len(MAX_FORESTRY_REGIONS)? {
+                let region = ForestryRegion {
+                    nation: r.usize()?, x0: r.i32()?, y0: r.i32()?, x1: r.i32()?, y1: r.i32()?,
+                };
+                if region.nation >= w.nations.len() || !region.valid()
+                    || w.forestry_regions.iter().any(|&other| other.nation == region.nation && region.overlaps(other))
+                {
+                    return Err(bad(t!("植林区域", "forestry region", "植林区域")));
+                }
+                w.forestry_regions.push(region);
+            }
+            for _ in 0..r.len(w.saplings.len())? {
+                let tile = r.usize()?;
+                if !w.saplings.contains_key(&tile) || !w.managed_saplings.insert(tile) {
+                    return Err(bad(t!("植林", "planting", "植树")));
+                }
+            }
+        }
+        for u in &w.units {
+            if let Order::Forestry { region, target, cursor } = u.order {
+                if w.forestry_regions.get(region).is_none_or(|area| {
+                    cursor >= area.area() || target.is_some_and(|tile| {
+                        tile >= n || !area.contains((tile % MAP_W) as i32, (tile / MAP_W) as i32)
+                    })
+                }) {
+                    return Err(bad(t!("植林の命令", "forestry order", "植林命令")));
                 }
             }
         }

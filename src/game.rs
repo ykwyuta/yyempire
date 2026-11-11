@@ -77,7 +77,7 @@ enum Screen {
 enum Mode {
     Normal,
     Place(BKind),
-    PlantForest,
+    PlantForest(Option<V2>),
     AttackMove,
 }
 
@@ -1060,18 +1060,7 @@ impl Game {
                                     self.mode = Mode::Normal;
                                 }
                             }
-                            Mode::PlantForest => {
-                                let (tx, ty) = self.placement_tile();
-                                let workers = self.own_sel();
-                                match self.world.plant_forest(self.world.player, &workers, tx, ty) {
-                                    Ok(()) => {
-                                        self.mode = Mode::Normal;
-                                        self.cmd_pause = false;
-                                        self.notice(t!("苗を植えました。30秒で森になります", "Planted trees. The forest will mature in 30 seconds.", "已种下树苗。30秒后长成森林。"));
-                                    }
-                                    Err(reason) => self.notice(reason),
-                                }
-                            }
+                            Mode::PlantForest(_) => self.ldown = Some((x, y)),
                             Mode::AttackMove => {
                                 let p = self.screen_to_world(x, y);
                                 let hs = self.own_sel();
@@ -1117,6 +1106,12 @@ impl Game {
                     0 => {
                         self.mm_drag = false;
                         if let Some((sx, sy)) = self.ldown.take() {
+                            if let Mode::PlantForest(anchor) = self.mode {
+                                if !self.over_ui(x, y) {
+                                    self.finish_forestry_selection(anchor, sx, sy, x, y);
+                                }
+                                return false;
+                            }
                             // タッチ：自国の部隊を選んでいるとき、自国の兵・民以外をタップすれば命令（右クリックと同じ）
                             let tap = (sx - x).abs() < 12.0 && (sy - y).abs() < 12.0;
                             if self.touch && tap && self.screen == Screen::Playing && !self.own_sel().is_empty() {
@@ -1361,7 +1356,7 @@ impl Game {
             if u.kind != UnitKind::Worker {
                 continue;
             }
-            if skip_builders && matches!(u.order, Order::Build(_)) {
+            if skip_builders && matches!(u.order, Order::Build(_) | Order::Forestry { .. }) {
                 continue;
             }
             if let Order::Build(bh) = u.order {
@@ -1426,7 +1421,7 @@ impl Game {
             if !u.alive || u.nation as usize != pl || u.kind != UnitKind::Worker {
                 continue;
             }
-            if u.order == Order::Build(bh) {
+            if u.order == Order::Build(bh) || matches!(u.order, Order::Forestry { .. }) {
                 continue;
             }
             let pen = match u.order {
@@ -1456,7 +1451,7 @@ impl Game {
         let home = self.world.nations[self.world.player].home;
         for &h in hs {
             let Some(u) = self.world.unit(h) else { continue };
-            if u.kind != UnitKind::Worker || matches!(u.order, Order::Build(_)) {
+            if u.kind != UnitKind::Worker || matches!(u.order, Order::Build(_) | Order::Forestry { .. }) {
                 continue;
             }
             let p = u.pos;
@@ -1625,6 +1620,36 @@ impl Game {
             }
         }
         best.map(|bs| bs.1)
+    }
+
+    fn finish_forestry_selection(&mut self, anchor: Option<V2>, sx: f32, sy: f32, x: f32, y: f32) {
+        let point = self.screen_to_world(x, y);
+        let end = point.tile();
+        let nation = self.world.player;
+        let workers = self.own_sel();
+        let dragged = (sx - x).hypot(sy - y) >= 5.0;
+        let count = if dragged || anchor.is_some() {
+            let start = anchor.unwrap_or_else(|| self.screen_to_world(sx, sy)).tile();
+            match self.world.designate_forestry(nation, &workers, start, end) {
+                Ok(count) => count,
+                Err(message) => {
+                    self.mode = Mode::PlantForest(None);
+                    self.notice(message);
+                    return;
+                }
+            }
+        } else if let Some(id) = self.world.forestry_region_at(nation, end.0, end.1) {
+            self.world.assign_forestry(nation, &workers, id)
+        } else {
+            self.mode = Mode::PlantForest(Some(point));
+            self.notice(t!("反対側の角を選んでください", "Choose the opposite corner", "请选择另一角"));
+            return;
+        };
+        self.mode = Mode::Normal;
+        if count > 0 {
+            self.cmd_pause = false;
+            self.notice(&tf!("民{}体を植林区域に配置しました", "Assigned {} workers to forestry", "已分配{}名民负责植林", count));
+        }
     }
 
     fn select_release(&mut self, sx: f32, sy: f32, x: f32, y: f32) {
@@ -2223,8 +2248,9 @@ impl Game {
                 }
             }
             Act::PlantForest => {
-                self.mode = Mode::PlantForest;
-                self.notice(t!("植林する場所を選ぶ", "Choose where to plant trees", "请选择植树地点"));
+                self.mode = Mode::PlantForest(None);
+                self.ldown = None;
+                self.notice(t!("ドラッグか対角の2点で植林区域を指定。既存の枠を選ぶと民を追加", "Drag or choose two corners. Click an existing forestry region to assign workers.", "拖动或点击两个对角划区，点击已有区域可增加林工。"));
             }
             Act::Repair => {
                 if let Some(h) = self.sel_b {
@@ -2339,6 +2365,10 @@ impl Game {
         let sy = -2.0 * z / h;
         self.gfx.set_xform(sx, sy, -self.cam.x * sx, -self.cam.y * sy);
         let place_tile = self.placement_tile();
+        let forestry_start = match self.mode {
+            Mode::PlantForest(anchor) => anchor.or_else(|| self.ldown.map(|(x, y)| self.screen_to_world(x, y))).map(|p| p.tile()),
+            _ => None,
+        };
         let fog_on = self.fog_active();
         let pl = self.world.player;
         let fog = &self.fog;
@@ -2466,12 +2496,15 @@ impl Game {
                 }
             }
         }
-        if self.mode == Mode::PlantForest {
-            let (tx, ty) = place_tile;
-            let ok = wd.can_plant_forest(wd.player, &self.sel, tx, ty).is_ok();
-            let color = if ok { [0.3, 1.0, 0.3, 0.45] } else { [1.0, 0.25, 0.2, 0.45] };
-            let (x, y) = (tx as f32, ty as f32);
-            g.rect(x, y, x + 1.0, y + 1.0, color);
+        for r in wd.forestry_regions.iter().filter(|r| r.nation == wd.player) {
+            g.rect_outline(r.x0 as f32, r.y0 as f32, r.x1 as f32 + 1.0, r.y1 as f32 + 1.0,
+                1.5 * px, [0.45, 0.84, 0.31, 0.76]);
+        }
+        if let Mode::PlantForest(_) = self.mode {
+            let (x, y) = place_tile;
+            let (x0, y0) = forestry_start.unwrap_or((x, y));
+            g.rect(x.min(x0) as f32, y.min(y0) as f32, x.max(x0) as f32 + 1.0, y.max(y0) as f32 + 1.0,
+                [0.45, 0.84, 0.31, 0.23]);
         }
         // 建設予定地
         if let Mode::Place(k) = self.mode {
@@ -3534,6 +3567,7 @@ impl Game {
     fn order_text(&self, u: &Unit) -> &'static str {
         match u.order {
             Order::Idle => t!("待機中", "Idle", "待命"),
+            Order::Forestry { .. } => t!("植林担当", "Forestry", "负责植林"),
             Order::Move(_) => t!("移動中", "Moving", "移动中"),
             Order::AttackMove(_) => t!("進軍中", "Advancing", "进军中"),
             Order::Attack(_) => t!("交戦中", "Fighting", "交战中"),
@@ -3864,9 +3898,8 @@ impl Game {
             let any_mil = own.iter().any(|&h| self.world.unit(h).unwrap().kind.military());
             if any_worker && !(self.discard_pending && can_discard) {
                 let (_, _, plant_right, _) = pos(1);
-                let label = tf!("植林（{}）", "Plant trees ({})", "植树（{}）", Self::cost_str(PLANT_FOREST_COST));
-                self.add_button(x, utility_y, plant_right, utility_bottom, &label, "", 0, afford(PLANT_FOREST_COST), Act::PlantForest,
-                    t!("選んだ民から6マス以内の自国領内の平地・草原に植える。30秒で木材を採れる森になる。", "Plant on empty plains or steppe in your territory within 6 tiles of a selected worker. The forest can be harvested after 30 seconds.", "在所选的民周围6格内的己方空旷平地或草原上植树。30秒后可伐木。"));
+                self.add_button(x, utility_y, plant_right, utility_bottom, t!("植林区域", "Forestry region", "植林区域"), "", 0, true, Act::PlantForest,
+                    t!("範囲を指定して民を配置。1マスごとに糧20で植え、30秒世話をすると森になります。既存の枠を選ぶと民を追加できます。", "Assign workers to a region. Each tile costs 20 food to plant and becomes forest after 30 seconds of tending. Click an existing region to assign more workers.", "划定区域并安排民。每格耗粮20，照料30秒后长成森林。点击已有区域可增加林工。"));
             }
             let mut i = 0;
             if any_worker {
