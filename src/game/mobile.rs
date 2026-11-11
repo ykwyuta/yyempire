@@ -11,12 +11,6 @@ const VIRTUAL_H: u32 = 720;
 pub(super) const TOP_H_COMPACT: f32 = 50.0;
 
 impl Game {
-    /// Browser controls may reserve space only on the title screen on touch devices.
-    #[cfg_attr(windows, allow(dead_code))]
-    pub fn is_title_screen(&self) -> bool {
-        self.screen == Screen::Title
-    }
-
     /// 一覧の画面を開いているか
     pub(super) fn overlay_open(&self) -> bool {
         self.show_diplo || self.show_help || self.show_chron || self.show_market || self.show_summon || self.show_save

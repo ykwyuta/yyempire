@@ -67,24 +67,18 @@ test('cancel does not touch caches or navigate', async () => {
   assert.deepEqual(calls, { removed: [], fetch: [], navigations: [], alerts: [] });
 });
 
-test('title state restores the touch layout after play without changing device mode', () => {
-  const { context, api } = setup();
-  const classes = new Set(['touch']);
-  context.document.documentElement.classList = {
-    toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); },
-  };
-  api.setTitleScreen(false);
-  assert.ok(classes.has('recovery-playing'));
-  assert.ok(classes.has('touch'));
-  api.setTitleScreen(true);
-  assert.ok(!classes.has('recovery-playing'));
-  api.setTitleScreen(false);
-  assert.ok(classes.has('recovery-playing'));
-  const html = fs.readFileSync(path.join(root, 'web/index.html'), 'utf8');
-  assert.ok(html.includes(':root.touch.recovery-playing { --recovery-space: 0px; }'));
-  assert.ok(html.includes(':root.touch.recovery-playing #browser-recovery { display: none; }'));
-  assert.ok(html.includes('var(--sb) - var(--recovery-space)'));
-  assert.ok(main.includes('setTitleScreen(wasm.yy_is_title() !== 0)'));
+test('Help can refresh with the floating button hidden; the error fallback can also refresh', async () => {
+  const help = setup();
+  assert.equal(help.button.hidden, true);
+  await help.api.refresh();
+  assert.equal(help.calls.navigations.length, 1);
+  assert.equal(help.button.hidden, true);
+
+  const fallback = setup();
+  fallback.api.showFallback();
+  assert.equal(fallback.button.hidden, false);
+  await fallback.click();
+  assert.equal(fallback.calls.navigations.length, 1);
 });
 
 test('offline keeps the game open and makes the button usable again', async () => {

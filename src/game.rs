@@ -129,6 +129,8 @@ enum Act {
     TutQuit,
     Scale(i32),
     Fullscreen,
+    #[cfg(target_arch = "wasm32")]
+    RefreshCache,
     /// 表示言語を切り替える
     Lang,
     SaveMenu,
@@ -1864,6 +1866,8 @@ impl Game {
                 self.notice(&tf!("文字の大きさ ×{:.2}", "Text size ×{:.2}", "文字大小 ×{:.2}", self.gfx.ui));
             }
             Act::Fullscreen => self.gfx.toggle_fullscreen(),
+            #[cfg(target_arch = "wasm32")]
+            Act::RefreshCache => unsafe { crate::platform::js::js_refresh_cache() },
             Act::Lang => {
                 let l = crate::lang::lang().next();
                 crate::lang::set_lang(l);
@@ -4049,6 +4053,10 @@ impl Game {
         }
         self.gfx.text_shadow(t!("兵法・遊び方", "How to Play", "兵法・玩法"), x0 + 56.0, y0 + 10.0, 220.0, 34.0, Font::Big, [1.0, 0.85, 0.5, 1.0]);
         self.add_button(x0 + pw - 90.0, y0 + 10.0, x0 + pw - 14.0, y0 + 40.0, t!("閉じる", "Close", "关闭"), "", 0, true, Act::CloseOverlay, "");
+        #[cfg(target_arch = "wasm32")]
+        self.add_button(x0 + pw - 310.0, y0 + 10.0, x0 + pw - 100.0, y0 + 40.0,
+            t!("キャッシュを更新して再読み込み", "Refresh cache and reload", "刷新缓存并重新加载"),
+            "", 0, true, Act::RefreshCache, "");
         self.art.draw_inset_box(&self.gfx, x0 + 14.0, y0 + 46.0, x0 + pw - 14.0, y0 + ph - 14.0);
         let text = t!(
             "■ 目的　紀元前221年までに天下を統一せよ。時間は全ての国で共通に流れ（春秋は1年＝16秒、戦国は時間がゆっくり流れ1年＝32秒）、春秋時代（〜前453年）から戦国時代へ移る。どの国も同じ時代補正を受け、一部の国だけ文明が進むことはない。

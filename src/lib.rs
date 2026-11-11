@@ -102,12 +102,6 @@ pub extern "C" fn yy_frame(dt: f32, focused: u32) -> u32 {
     })
 }
 
-/// Current screen for browser controls (independent of overlays and hit targets).
-#[no_mangle]
-pub extern "C" fn yy_is_title() -> u32 {
-    GAME.with(|g| g.borrow().as_ref().map_or(1, |game| game.is_title_screen() as u32))
-}
-
 /// タッチした場所に何があるか（実ピクセル）。ブラウザ側が指の動きの解釈を決めるのに使う
 /// 0=地図 1=画面部品 2=ミニマップ 3=なぞってスクロールできる一覧 4=タイトル画面の地図
 #[no_mangle]

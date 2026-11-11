@@ -21,14 +21,12 @@
         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
       body { touch-action: none; }
       /* 画面の縁からの余白（指で操作する端末では、ノッチ・ホームバー・戻るジェスチャーの領域を避ける） */
-      :root { --sl: 0px; --sr: 0px; --st: 0px; --sb: 0px; --recovery-space: 44px; }
+      :root { --sl: 0px; --sr: 0px; --st: 0px; --sb: 0px; }
       :root.touch { --sl: max(env(safe-area-inset-left), 14px); --sr: max(env(safe-area-inset-right), 14px);
           --st: max(env(safe-area-inset-top), 10px); --sb: max(env(safe-area-inset-bottom), 14px); }
       canvas { position: fixed; left: var(--sl); top: var(--st); display: block;
-        width: calc(100vw - var(--sl) - var(--sr)); height: calc(100vh - var(--st) - var(--sb) - var(--recovery-space)); height: calc(100dvh - var(--st) - var(--sb) - var(--recovery-space)); }
+        width: calc(100vw - var(--sl) - var(--sr)); height: calc(100vh - var(--st) - var(--sb)); height: calc(100dvh - var(--st) - var(--sb)); }
       #ui { touch-action: none; outline: none; }
-      :root.touch.recovery-playing { --recovery-space: 0px; }
-      :root.touch.recovery-playing #browser-recovery { display: none; }
       /* スマートフォンを縦に持っているときは横向きを促す */
       #rotate { display: none; position: fixed; inset: 0; z-index: 10; flex-direction: column; align-items: center; justify-content: center;
         gap: 18px; background: rgba(18, 15, 12, 0.94); color: #e8d8b0; font: 18px "Noto Sans JP", sans-serif; text-align: center; padding: 24px; }
@@ -55,6 +53,7 @@
       if (refresh) url.searchParams.set('_yyrefresh', refresh);
       import(url.href).catch((error) => {
         console.error(error);
+        window.yyBrowserRecovery?.showFallback?.();
         const message = document.getElementById('loading-msg');
         if (message) message.textContent = '読み込みに失敗しました / Loading failed / 加载失败: ' + error.message;
       });

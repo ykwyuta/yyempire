@@ -4,6 +4,7 @@
   const button = document.createElement('button');
   button.id = 'browser-recovery';
   button.type = 'button';
+  button.hidden = true;
   button.style.cssText = 'position:fixed;right:max(10px,env(safe-area-inset-right));bottom:calc(var(--sb, 0px) + 4px);z-index:100;min-height:36px;padding:6px 10px;border:1px solid #a99b78;border-radius:6px;background:#202521;color:#fff;font:13px system-ui,sans-serif;touch-action:manipulation;cursor:pointer';
   const text = (ja, en, zh) => {
     const lang = document.documentElement.lang;
@@ -19,9 +20,8 @@
   const api = window.yyBrowserRecovery = {
     reloading: false,
     setSaveGuard(guard) { saveGuard = guard; },
-    setTitleScreen(isTitle) {
-      document.documentElement.classList.toggle('recovery-playing', !isTitle);
-    },
+    showFallback() { button.hidden = false; },
+    refresh,
   };
   // Do not send the button's input (including Enter/Space) into the game.
   for (const type of ['pointerdown', 'pointerup', 'click', 'keydown', 'keyup']) {
@@ -35,7 +35,7 @@
       }
     }, { capture: true, passive: false });
   }
-  button.addEventListener('click', async () => {
+  async function refresh() {
     if (api.reloading) return;
     if (!window.confirm(text(
       'セーブデータと設定を残し、ゲームのキャッシュを更新して再読み込みします。未保存の進行は失われます。必要なら先にF5の記録画面で保存してください。続けますか？',
@@ -86,6 +86,7 @@
       label();
       window.alert(text('再読み込みを中止しました。', 'Reload cancelled.', '已取消重新加载。') + '\n' + (error.message || error));
     }
-  });
+  }
+  button.addEventListener('click', refresh);
   document.body.appendChild(button);
 })();
