@@ -77,6 +77,7 @@ enum Screen {
 enum Mode {
     Normal,
     Place(BKind),
+    PlantForest,
     AttackMove,
 }
 
@@ -116,6 +117,7 @@ enum Act {
     Discard,
     ConfirmDiscard,
     Repair,
+    PlantForest,
     ResumeBuild,
     IdleWorker,
     Chron,
@@ -1056,6 +1058,18 @@ impl Game {
                                 self.try_place(k, queue);
                                 if !self.keys[VK_SHIFT as usize] && !queue {
                                     self.mode = Mode::Normal;
+                                }
+                            }
+                            Mode::PlantForest => {
+                                let (tx, ty) = self.placement_tile();
+                                let workers = self.own_sel();
+                                match self.world.plant_forest(self.world.player, &workers, tx, ty) {
+                                    Ok(()) => {
+                                        self.mode = Mode::Normal;
+                                        self.cmd_pause = false;
+                                        self.notice(t!("苗を植えました。30秒で森になります", "Planted trees. The forest will mature in 30 seconds.", "已种下树苗。30秒后长成森林。"));
+                                    }
+                                    Err(reason) => self.notice(reason),
                                 }
                             }
                             Mode::AttackMove => {
@@ -2208,6 +2222,10 @@ impl Game {
                     self.notice(&tf!("ユニットを{}体破棄しました", "Removed {} units", "已移除{}个单位", hs.len()));
                 }
             }
+            Act::PlantForest => {
+                self.mode = Mode::PlantForest;
+                self.notice(t!("植林する場所を選ぶ", "Choose where to plant trees", "请选择植树地点"));
+            }
             Act::Repair => {
                 if let Some(h) = self.sel_b {
                     if self.world.repair_building(pl, h) {
@@ -2439,6 +2457,22 @@ impl Game {
             let c = if atk { [1.0, 0.3, 0.2, t / 0.6] } else { [0.4, 1.0, 0.4, t / 0.6] };
             g.ring(p.x, p.y, r, 2.0 * px, 16, c);
         }
+        if z < 2.2 {
+            for &i in wd.saplings.keys() {
+                let x = (i % MAP_W) as f32 + 0.5;
+                let y = (i / MAP_W) as f32 + 0.5;
+                if fog_at(v2(x, y)) == 2 {
+                    g.circle(x, y, 0.24, 6, [0.33, 0.66, 0.25, 1.0]);
+                }
+            }
+        }
+        if self.mode == Mode::PlantForest {
+            let (tx, ty) = place_tile;
+            let ok = wd.can_plant_forest(wd.player, &self.sel, tx, ty).is_ok();
+            let color = if ok { [0.3, 1.0, 0.3, 0.45] } else { [1.0, 0.25, 0.2, 0.45] };
+            let (x, y) = (tx as f32, ty as f32);
+            g.rect(x, y, x + 1.0, y + 1.0, color);
+        }
         // 建設予定地
         if let Mode::Place(k) = self.mode {
             let (tx, ty) = place_tile;
@@ -2502,6 +2536,7 @@ impl Game {
         let pl = self.world.player;
 
         enum WorldItem {
+            Planting { sx: f32, sy: f32, size: f32, stage: usize },
             Mountain { sx: f32, sy: f32, r: f32, flip_x: bool, fogged: bool },
             Forest { sx: f32, sy: f32, r: f32, flip_x: bool, fogged: bool },
             Mine { sx: f32, sy: f32, r: f32, fogged: bool },
@@ -2540,6 +2575,19 @@ impl Game {
             let y0 = (view0.y.floor() as i32).max(0);
             let x1 = (view1.x.ceil() as i32).min(MAP_W as i32 - 1);
             let y1 = (view1.y.ceil() as i32).min(MAP_H as i32 - 1);
+
+            for (&i, &ready_at) in &self.world.saplings {
+                let x = (i % MAP_W) as f32 + 0.5;
+                let y = (i / MAP_W) as f32 + 0.5;
+                if x < view0.x || x > view1.x || y < view0.y || y > view1.y || (fog_on && self.fog[i] != 2) {
+                    continue;
+                }
+                let elapsed = FOREST_GROWTH_TIME - (ready_at - self.world.time);
+                let stage = ((elapsed * 3.0 / FOREST_GROWTH_TIME) as usize).min(2);
+                let size = (z * [0.66, 1.0, 1.44][stage]).clamp(4.0, 72.0);
+                let (sx, sy) = self.world_to_screen(v2(x, y));
+                items.push((sy, WorldItem::Planting { sx, sy, size, stage }));
+            }
 
             // 山岳・森林のAI生成スプライト
             let thin = z < 8.5;
@@ -2700,6 +2748,11 @@ impl Game {
                     WorldItem::Mountain { sx, sy, r, flip_x, fogged } => {
                         if let Some(bmp) = self.art.mountain_sprite(flip_x, fogged) {
                             self.gfx.draw_bitmap(bmp, sx - r, sy - r * 1.18, sx + r, sy + r * 0.82);
+                        }
+                    }
+                    WorldItem::Planting { sx, sy, size, stage } => {
+                        if let Some(bmp) = self.art.planting_sprite(stage) {
+                            self.gfx.draw_bitmap(bmp, sx - size * 0.5, sy - size * 0.9, sx + size * 0.5, sy + size * 0.1);
                         }
                     }
                     WorldItem::Forest { sx, sy, r, flip_x, fogged } => {
@@ -3809,6 +3862,12 @@ impl Game {
             }
             let any_worker = own.iter().any(|&h| self.world.unit(h).unwrap().kind == UnitKind::Worker);
             let any_mil = own.iter().any(|&h| self.world.unit(h).unwrap().kind.military());
+            if any_worker && !(self.discard_pending && can_discard) {
+                let (_, _, plant_right, _) = pos(1);
+                let label = tf!("植林（{}）", "Plant trees ({})", "植树（{}）", Self::cost_str(PLANT_FOREST_COST));
+                self.add_button(x, utility_y, plant_right, utility_bottom, &label, "", 0, afford(PLANT_FOREST_COST), Act::PlantForest,
+                    t!("選んだ民から6マス以内の自国領内の平地・草原に植える。30秒で木材を採れる森になる。", "Plant on empty plains or steppe in your territory within 6 tiles of a selected worker. The forest can be harvested after 30 seconds.", "在所选的民周围6格内的己方空旷平地或草原上植树。30秒后可伐木。"));
+            }
             let mut i = 0;
             if any_worker {
                 for (k, key, tip) in [

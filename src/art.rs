@@ -112,7 +112,12 @@ const RAW_DIVINE_BLD_SPRITES: [&[u8]; 2] = [
     include_bytes!("../assets/divine/divine_town.bgra"),
 ];
 
+const PLANTING_SPRITE_SIZE: usize = 96;
+const PLANTING_SPRITE_BYTES: usize = PLANTING_SPRITE_SIZE * PLANTING_SPRITE_SIZE * 4;
+const RAW_PLANTING_SPRITES: &[u8; PLANTING_SPRITE_BYTES * 3] = include_bytes!("../assets/map/planting.bgra");
+
 pub struct Art {
+    planting_sprites: [Option<ID2D1Bitmap>; 3],
     gen: u32,
     pub hud_stone: Option<ID2D1Bitmap>,
     pub panel_wood: Option<ID2D1Bitmap>,
@@ -933,6 +938,7 @@ impl Art {
             unit_sprites_flip: Default::default(),
             bld_sprites: Default::default(),
             bld_sprites_fog: Default::default(),
+            planting_sprites: Default::default(),
             prop_sprites: Default::default(),
             prop_sprites_flip: Default::default(),
             prop_sprites_fog: Default::default(),
@@ -1008,6 +1014,11 @@ impl Art {
         for b in 0..5 {
             self.bld_sprites[b] = gfx.create_bitmap(bsz, bsz, &load_raw_sprite_bgra(RAW_BLD_SPRITES[b], BLD_SPRITE_SZ, false, 1.0));
             self.bld_sprites_fog[b] = gfx.create_bitmap(bsz, bsz, &load_raw_sprite_bgra(RAW_BLD_SPRITES[b], BLD_SPRITE_SZ, false, 0.52));
+        }
+        let planting_size = PLANTING_SPRITE_SIZE as u32;
+        for (bitmap, raw) in self.planting_sprites.iter_mut().zip(RAW_PLANTING_SPRITES.chunks_exact(PLANTING_SPRITE_BYTES)) {
+            let pixels = load_raw_sprite_bgra(raw, PLANTING_SPRITE_SIZE, false, 1.0);
+            *bitmap = gfx.create_bitmap(planting_size, planting_size, &pixels);
         }
         let psz = PROP_SPRITE_SZ as u32;
         for p in 0..3 {
@@ -1089,6 +1100,10 @@ impl Art {
             (true, false) => self.prop_sprites_fog[0].as_ref(),
             (true, true) => self.prop_sprites_fog_flip[0].as_ref(),
         }
+    }
+
+    pub fn planting_sprite(&self, stage: usize) -> Option<&ID2D1Bitmap> {
+        self.planting_sprites[stage].as_ref()
     }
 
     pub fn forest_sprite(&self, flip_x: bool, fogged: bool) -> Option<&ID2D1Bitmap> {
