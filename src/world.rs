@@ -4,7 +4,7 @@ use crate::ai::AiState;
 use crate::geo::*;
 use crate::path::PathFinder;
 use crate::rng::Rng;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 mod history;
 mod trade;
@@ -305,6 +305,7 @@ impl Src {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Order {
+    Forestry { region: usize, target: Option<usize>, cursor: usize },
     Idle,
     Move(V2),
     AttackMove(V2),
@@ -492,7 +493,57 @@ pub const GH: i32 = (MAP_H as i32 + GCELL - 1) / GCELL;
 /// 苗を植えてから伐採できる森になるまでの対局内秒数。
 pub const FOREST_GROWTH_TIME: f32 = 30.0;
 pub const PLANT_FOREST_COST: [f32; 3] = [20.0, 0.0, 0.0];
-const PLANT_RANGE: f32 = 6.0;
+const FORESTRY_REACH: f32 = 0.85;
+const MAX_FORESTRY_REGIONS: usize = 1024;
+const MAX_FORESTRY_SIDE: i32 = 64;
+
+#[derive(Clone, Copy)]
+pub struct ForestryRegion {
+    pub nation: usize,
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
+}
+
+impl ForestryRegion {
+    fn valid(self) -> bool {
+        Map::inb(self.x0, self.y0) && Map::inb(self.x1, self.y1)
+            && (0..MAX_FORESTRY_SIDE).contains(&(self.x1 - self.x0))
+            && (0..MAX_FORESTRY_SIDE).contains(&(self.y1 - self.y0))
+    }
+
+    pub fn contains(self, x: i32, y: i32) -> bool {
+        (self.x0..=self.x1).contains(&x) && (self.y0..=self.y1).contains(&y)
+    }
+
+    fn overlaps(self, other: Self) -> bool {
+        self.x0 <= other.x1 && other.x0 <= self.x1 && self.y0 <= other.y1 && other.y0 <= self.y1
+    }
+
+    fn width(self) -> usize {
+        (self.x1 - self.x0 + 1) as usize
+    }
+
+    fn area(self) -> usize {
+        self.width() * (self.y1 - self.y0 + 1) as usize
+    }
+
+    fn tile(self, offset: usize) -> usize {
+        Map::idx(self.x0 + (offset % self.width()) as i32, self.y0 + (offset / self.width()) as i32)
+    }
+
+    fn offset_near(self, pos: V2) -> usize {
+        let (x, y) = pos.tile();
+        let x = x.clamp(self.x0, self.x1) - self.x0;
+        let y = y.clamp(self.y0, self.y1) - self.y0;
+        y as usize * self.width() + x as usize
+    }
+}
+
+fn forestry_position(tile: usize) -> V2 {
+    v2((tile % MAP_W) as f32 + 0.5, (tile / MAP_W) as f32 + 0.5)
+}
 
 pub struct World {
     pub map: Map,
@@ -540,6 +591,9 @@ pub struct World {
     pub terrain_dirty: Vec<(i32, i32)>,
     /// マス番号 → 森になる対局内時刻。
     pub saplings: BTreeMap<usize, f32>,
+    pub forestry_regions: Vec<ForestryRegion>,
+    // Trees from older saves have no tending requirement.
+    managed_saplings: BTreeSet<usize>,
     pub game_over: Option<(bool, String)>,
     /// チュートリアル中はプレイヤーへの宣戦を禁じる
     pub protect_player: bool,
@@ -607,6 +661,8 @@ impl World {
             territory_version: 0,
             terrain_dirty: Vec::new(),
             saplings: BTreeMap::new(),
+            forestry_regions: Vec::new(),
+            managed_saplings: BTreeSet::new(),
             game_over: None,
             protect_player: false,
             player_orders: 0,
@@ -827,41 +883,154 @@ impl World {
         }
     }
 
-    pub fn can_plant_forest(&self, nation: usize, workers: &[Handle], tx: i32, ty: i32) -> Result<(), &'static str> {
-        if !Map::inb(tx, ty) {
-            return Err(t!("地図の外には植林できない", "Plant trees inside the map", "请在地图内植树"));
+    fn forestry_ground(&self, nation: usize, tile: usize) -> bool {
+        self.owner[tile] as usize == nation && self.bmap[tile] == 0
+            && matches!(self.map.terrain[tile], Terrain::Plain | Terrain::Steppe)
+    }
+
+    fn forestry_plantable(&self, nation: usize, tile: usize) -> bool {
+        self.forestry_ground(nation, tile) && !self.saplings.contains_key(&tile)
+            && !self.map.mines.iter().any(|m| {
+                m.amount > 0.0 && Map::idx(m.x, m.y) == tile
+            })
+    }
+
+    pub fn forestry_region_at(&self, nation: usize, x: i32, y: i32) -> Option<usize> {
+        self.forestry_regions.iter().position(|r| r.nation == nation && r.contains(x, y))
+    }
+
+    pub fn designate_forestry(&mut self, nation: usize, workers: &[Handle], a: (i32, i32), b: (i32, i32)) -> Result<usize, &'static str> {
+        let region = ForestryRegion {
+            nation, x0: a.0.min(b.0), y0: a.1.min(b.1), x1: a.0.max(b.0), y1: a.1.max(b.1),
+        };
+        if !region.valid() {
+            return Err(t!("地図内で最大64×64マスの範囲を指定してください", "Choose an area up to 64 × 64 tiles inside the map", "请在地图内选择不超过64×64格的区域"));
         }
-        let i = Map::idx(tx, ty);
-        if self.owner[i] as usize != nation || !matches!(self.map.terrain[i], Terrain::Plain | Terrain::Steppe)
-            || self.bmap[i] != 0 || self.saplings.contains_key(&i)
-            || self.map.mines.iter().any(|m| m.x == tx && m.y == ty && m.amount > 0.0)
-        {
-            return Err(t!("自国領内の空いた平地か草原を選ぶ", "Choose empty plains or steppe in your territory", "请选择己方领土内的空旷平地或草原"));
+        if self.forestry_regions.len() >= MAX_FORESTRY_REGIONS {
+            return Err(t!("植林区域が上限に達しています", "Forestry region limit reached", "植林区域已达上限"));
         }
-        let site = v2(tx as f32 + 0.5, ty as f32 + 0.5);
-        if !workers.iter().any(|&h| {
-            self.unit(h).is_some_and(|u| u.kind == UnitKind::Worker && u.nation as usize == nation && u.pos.dist(site) <= PLANT_RANGE)
+        if self.forestry_regions.iter().any(|&r| r.nation == nation && region.overlaps(r)) {
+            return Err(t!("既存の植林区域と重なっています。区域をクリックすると民を追加できます", "This overlaps a forestry region. Click the region to assign workers to it.", "区域重叠。点击现有区域可增加林工。"));
+        }
+        if !(0..region.area()).any(|offset| {
+            let tile = region.tile(offset);
+            self.forestry_plantable(nation, tile)
+                || (self.owner[tile] as usize == nation && self.bmap[tile] == 0
+                    && (self.map.terrain[tile] == Terrain::Forest || self.saplings.contains_key(&tile)))
         }) {
-            return Err(t!("選んだ民を植林場所の近く（6マス以内）へ移動させる", "Move a selected worker within 6 tiles of the planting site", "请让所选的民靠近植树点（6格以内）"));
+            return Err(t!("自国領内の森か、空いた平地・草原を含めてください", "Include forest, empty plains, or steppe in your territory", "请包含己方领土内的森林或空旷平地、草原"));
         }
-        Ok(())
+        let id = self.forestry_regions.len();
+        self.forestry_regions.push(region);
+        let count = self.assign_forestry(nation, workers, id);
+        if count == 0 {
+            self.forestry_regions.pop();
+            return Err(t!("植林を担当する民を選んでください", "Select workers to assign to forestry", "请选择负责植林的民"));
+        }
+        Ok(count)
     }
 
-    pub fn plant_forest(&mut self, nation: usize, workers: &[Handle], tx: i32, ty: i32) -> Result<(), &'static str> {
-        self.can_plant_forest(nation, workers, tx, ty)?;
-        if !self.try_pay(nation, PLANT_FOREST_COST) {
-            return Err(t!("植林に必要な糧が足りない", "Not enough food to plant trees", "植树所需的粮食不足"));
+    pub fn assign_forestry(&mut self, nation: usize, workers: &[Handle], id: usize) -> usize {
+        let Some(&region) = self.forestry_regions.get(id).filter(|r| r.nation == nation) else {
+            return 0;
+        };
+        let mut count = 0;
+        for &h in workers {
+            let Some(u) = self.unit_mut(h) else { continue };
+            if !u.alive || u.kind != UnitKind::Worker || u.nation as usize != nation {
+                continue;
+            }
+            if !matches!(u.order, Order::Forestry { region, .. } if region == id) {
+                u.order = Order::Forestry { region: id, target: None, cursor: region.offset_near(u.pos) };
+                u.resume = None;
+                u.build_queue.clear();
+                u.reset_nav();
+                u.scan_t = 0.0;
+            }
+            count += 1;
         }
-        self.saplings.insert(Map::idx(tx, ty), self.time + FOREST_GROWTH_TIME);
-        Ok(())
+        count
     }
 
-    fn grow_forests(&mut self) {
-        self.saplings.retain(|&i, &mut ready_at| {
+    fn update_forestry(&mut self, i: usize, id: usize, target: Option<usize>, cursor: usize, dt: f32) {
+        let nation = self.units[i].nation as usize;
+        let Some(&region) = self.forestry_regions.get(id).filter(|r| r.nation == nation) else {
+            self.units[i].order = Order::Idle;
+            return;
+        };
+        if self.units[i].kind != UnitKind::Worker {
+            self.units[i].order = Order::Idle;
+            return;
+        }
+        if let Some(tile) = target {
+            let goal = forestry_position(tile);
+            if self.forestry_ground(nation, tile) && (self.managed_saplings.contains(&tile) || self.forestry_plantable(nation, tile)) {
+                if self.units[i].pos.dist(goal) <= FORESTRY_REACH {
+                    if self.managed_saplings.contains(&tile) {
+                        return;
+                    }
+                    if self.try_pay(nation, PLANT_FOREST_COST) {
+                        self.saplings.insert(tile, self.time + FOREST_GROWTH_TIME);
+                        self.managed_saplings.insert(tile);
+                        return;
+                    }
+                } else if !self.nav(i, goal, FORESTRY_REACH, dt) {
+                    return;
+                }
+            }
+            self.units[i].order = Order::Forestry { region: id, target: None, cursor };
+            self.units[i].scan_t = 0.5;
+            self.units[i].reset_nav();
+            return;
+        }
+
+        if self.units[i].scan_t > 0.0 {
+            return;
+        }
+        self.units[i].scan_t = 1.0;
+        let reserved: BTreeSet<_> = self.units.iter().filter(|u| u.alive).filter_map(|u| {
+            if let Order::Forestry { target, .. } = u.order { target } else { None }
+        }).collect();
+        let can_pay = self.nations[nation].res[0] >= PLANT_FOREST_COST[0];
+        let choice = (0..region.area()).map(|n| (cursor + n) % region.area()).find(|&offset| {
+            let tile = region.tile(offset);
+            !reserved.contains(&tile)
+                && if self.managed_saplings.contains(&tile) {
+                    self.forestry_ground(nation, tile)
+                } else {
+                    can_pay && self.forestry_plantable(nation, tile)
+                }
+        });
+        if let Some(offset) = choice {
+            self.units[i].order = Order::Forestry { region: id, target: Some(region.tile(offset)), cursor: (offset + 1) % region.area() };
+        }
+    }
+
+    fn grow_forests(&mut self, elapsed: f32) {
+        let tended: BTreeSet<_> = if self.managed_saplings.is_empty() {
+            BTreeSet::new()
+        } else {
+            self.units.iter().filter(|u| u.alive && u.kind == UnitKind::Worker).filter_map(|u| {
+                let Order::Forestry { region, target: Some(tile), .. } = u.order else { return None };
+                let nation = u.nation as usize;
+                if self.forestry_regions[region].nation == nation && self.forestry_ground(nation, tile)
+                    && u.pos.dist(forestry_position(tile)) <= FORESTRY_REACH
+                {
+                    Some(tile)
+                } else {
+                    None
+                }
+            }).collect()
+        };
+        self.saplings.retain(|&i, ready_at| {
             if self.bmap[i] != 0 || !matches!(self.map.terrain[i], Terrain::Plain | Terrain::Steppe) {
                 return false;
             }
-            if self.time < ready_at {
+            if self.managed_saplings.contains(&i) && !tended.contains(&i) {
+                *ready_at += elapsed;
+                return true;
+            }
+            if self.time < *ready_at {
                 return true;
             }
             self.map.terrain[i] = Terrain::Forest;
@@ -870,6 +1039,7 @@ impl World {
             self.terrain_dirty.push(((i % MAP_W) as i32, (i / MAP_W) as i32));
             false
         });
+        self.managed_saplings.retain(|tile| self.saplings.contains_key(tile));
     }
 
     pub fn footprint_free(&self, tx: i32, ty: i32) -> bool {
@@ -1926,13 +2096,14 @@ impl World {
     // ------------------------------------------------------------ 更新
     pub fn step(&mut self) {
         let dt = DT;
+        let prev_time = self.time;
         self.time += dt;
         let spy = self.sec_per_year();
         self.years += dt / spy;
         if self.game_over.is_some() {
             return;
         }
-        self.grow_forests();
+        self.grow_forests(self.time - prev_time);
         if self.era == Era::Spring && START_BC - self.years <= WARRING_BC {
             self.begin_warring();
         }
@@ -2357,6 +2528,7 @@ impl World {
         let ni = self.units[i].nation as usize;
         let kind = self.units[i].kind;
         match order {
+            Order::Forestry { region, target, cursor } => self.update_forestry(i, region, target, cursor, dt),
             Order::Idle => {
                 if kind.military() && self.units[i].scan_t <= 0.0 {
                     self.units[i].scan_t = 0.5;
