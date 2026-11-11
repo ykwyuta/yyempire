@@ -77,6 +77,10 @@ fn eof() -> String {
 }
 
 impl<'a> Reader<'a> {
+    pub fn is_empty(&self) -> bool {
+        self.pos == self.data.len()
+    }
+
     pub fn new(data: &'a [u8]) -> Reader<'a> {
         Reader { data, pos: 0 }
     }

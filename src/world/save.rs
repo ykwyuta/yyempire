@@ -479,6 +479,14 @@ impl World {
         w.usize(tr.target_w);
         w.f32(tr.spawn_t);
         w.f32(tr.band_t);
+        // 旧版の記録にも対応するため、植林データは末尾にだけ追加する。
+        if !self.saplings.is_empty() {
+            w.usize(self.saplings.len());
+            for (&i, &ready_at) in &self.saplings {
+                w.usize(i);
+                w.f32(ready_at);
+            }
+        }
     }
 
     /// 記録から World を復元する（地図は種から作り直す）
@@ -833,6 +841,15 @@ impl World {
         w.refresh_traits();
         w.update_stats();
         w.rebuild_grid();
+        if !r.is_empty() {
+            for _ in 0..r.len(n)? {
+                let i = r.usize()?;
+                let ready_at = r.f32()?;
+                if i >= n || !ready_at.is_finite() || w.saplings.insert(i, ready_at).is_some() {
+                    return Err(bad(t!("植林", "planting", "植树")));
+                }
+            }
+        }
         Ok(w)
     }
 }

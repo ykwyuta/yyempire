@@ -4,7 +4,7 @@ use crate::ai::AiState;
 use crate::geo::*;
 use crate::path::PathFinder;
 use crate::rng::Rng;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 mod history;
 mod trade;
@@ -489,6 +489,11 @@ pub const GCELL: i32 = 4;
 pub const GW: i32 = (MAP_W as i32 + GCELL - 1) / GCELL;
 pub const GH: i32 = (MAP_H as i32 + GCELL - 1) / GCELL;
 
+/// 苗を植えてから伐採できる森になるまでの対局内秒数。
+pub const FOREST_GROWTH_TIME: f32 = 30.0;
+pub const PLANT_FOREST_COST: [f32; 3] = [20.0, 0.0, 0.0];
+const PLANT_RANGE: f32 = 6.0;
+
 pub struct World {
     pub map: Map,
     pub cost: Vec<f32>,
@@ -533,6 +538,8 @@ pub struct World {
     /// 押し合いを1ステップおきにするための拍子
     sep_tick: bool,
     pub terrain_dirty: Vec<(i32, i32)>,
+    /// マス番号 → 森になる対局内時刻。
+    pub saplings: BTreeMap<usize, f32>,
     pub game_over: Option<(bool, String)>,
     /// チュートリアル中はプレイヤーへの宣戦を禁じる
     pub protect_player: bool,
@@ -599,6 +606,7 @@ impl World {
             territory_dirty: true,
             territory_version: 0,
             terrain_dirty: Vec::new(),
+            saplings: BTreeMap::new(),
             game_over: None,
             protect_player: false,
             player_orders: 0,
@@ -819,6 +827,51 @@ impl World {
         }
     }
 
+    pub fn can_plant_forest(&self, nation: usize, workers: &[Handle], tx: i32, ty: i32) -> Result<(), &'static str> {
+        if !Map::inb(tx, ty) {
+            return Err(t!("地図の外には植林できない", "Plant trees inside the map", "请在地图内植树"));
+        }
+        let i = Map::idx(tx, ty);
+        if self.owner[i] as usize != nation || !matches!(self.map.terrain[i], Terrain::Plain | Terrain::Steppe)
+            || self.bmap[i] != 0 || self.saplings.contains_key(&i)
+            || self.map.mines.iter().any(|m| m.x == tx && m.y == ty && m.amount > 0.0)
+        {
+            return Err(t!("自国領内の空いた平地か草原を選ぶ", "Choose empty plains or steppe in your territory", "请选择己方领土内的空旷平地或草原"));
+        }
+        let site = v2(tx as f32 + 0.5, ty as f32 + 0.5);
+        if !workers.iter().any(|&h| {
+            self.unit(h).is_some_and(|u| u.kind == UnitKind::Worker && u.nation as usize == nation && u.pos.dist(site) <= PLANT_RANGE)
+        }) {
+            return Err(t!("選んだ民を植林場所の近く（6マス以内）へ移動させる", "Move a selected worker within 6 tiles of the planting site", "请让所选的民靠近植树点（6格以内）"));
+        }
+        Ok(())
+    }
+
+    pub fn plant_forest(&mut self, nation: usize, workers: &[Handle], tx: i32, ty: i32) -> Result<(), &'static str> {
+        self.can_plant_forest(nation, workers, tx, ty)?;
+        if !self.try_pay(nation, PLANT_FOREST_COST) {
+            return Err(t!("植林に必要な糧が足りない", "Not enough food to plant trees", "植树所需的粮食不足"));
+        }
+        self.saplings.insert(Map::idx(tx, ty), self.time + FOREST_GROWTH_TIME);
+        Ok(())
+    }
+
+    fn grow_forests(&mut self) {
+        self.saplings.retain(|&i, &mut ready_at| {
+            if self.bmap[i] != 0 || !matches!(self.map.terrain[i], Terrain::Plain | Terrain::Steppe) {
+                return false;
+            }
+            if self.time < ready_at {
+                return true;
+            }
+            self.map.terrain[i] = Terrain::Forest;
+            self.map.wood[i] = 120.0;
+            self.cost[i] = Terrain::Forest.move_cost();
+            self.terrain_dirty.push(((i % MAP_W) as i32, (i / MAP_W) as i32));
+            false
+        });
+    }
+
     pub fn footprint_free(&self, tx: i32, ty: i32) -> bool {
         for dy in 0..2 {
             for dx in 0..2 {
@@ -827,7 +880,7 @@ impl World {
                     return false;
                 }
                 let i = Map::idx(x, y);
-                if !self.map.terrain[i].buildable() || self.bmap[i] != 0 {
+                if !self.map.terrain[i].buildable() || self.bmap[i] != 0 || self.saplings.contains_key(&i) {
                     return false;
                 }
                 if self.map.mines.iter().any(|m| m.x == x && m.y == y && m.amount > 0.0) {
@@ -1879,6 +1932,7 @@ impl World {
         if self.game_over.is_some() {
             return;
         }
+        self.grow_forests();
         if self.era == Era::Spring && START_BC - self.years <= WARRING_BC {
             self.begin_warring();
         }
