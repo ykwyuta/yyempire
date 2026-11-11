@@ -41,6 +41,7 @@ pub mod js {
         pub fn js_font_lang(lang: u32);
 
         pub fn js_fullscreen_toggle();
+        pub fn js_refresh_cache();
         pub fn js_is_fullscreen() -> u32;
     }
 }
