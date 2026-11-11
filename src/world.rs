@@ -1329,6 +1329,43 @@ impl World {
         false
     }
 
+    pub fn can_discard_unit(&self, nation: usize, h: Handle) -> bool {
+        self.unit(h).is_some_and(|u| u.nation as usize == nation)
+    }
+
+    pub fn discard_units(&mut self, nation: usize, hs: &[Handle]) -> bool {
+        if hs.is_empty() || !hs.iter().all(|&h| self.can_discard_unit(nation, h)) {
+            return false;
+        }
+        for &h in hs {
+            self.kill_unit(h.idx as usize);
+        }
+        self.update_stats();
+        true
+    }
+
+    /// 補修には失った耐久10につき木材1（端数切り上げ）が必要。
+    pub fn repair_cost(&self, nation: usize, h: Handle) -> Option<[f32; 3]> {
+        let b = self.bld(h)?;
+        let missing = b.kind.max_hp() - b.hp;
+        if b.nation as usize != nation || !b.done() || b.hp <= 0.0 || missing <= 0.0 {
+            return None;
+        }
+        Some([0.0, (missing / 10.0).ceil(), 0.0])
+    }
+
+    pub fn repair_building(&mut self, nation: usize, h: Handle) -> bool {
+        let Some(cost) = self.repair_cost(nation, h) else {
+            return false;
+        };
+        if !self.try_pay(nation, cost) {
+            return false;
+        }
+        let b = &mut self.blds[h.idx as usize];
+        b.hp = b.kind.max_hp();
+        true
+    }
+
     pub fn try_pay(&mut self, nation: usize, cost: [f32; 3]) -> bool {
         let r = &mut self.nations[nation].res;
         if r[0] >= cost[0] && r[1] >= cost[1] && r[2] >= cost[2] {
